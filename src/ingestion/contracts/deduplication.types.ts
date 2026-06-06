@@ -6,11 +6,13 @@ export interface SportDeduplicationKey {
 /** Lookup key used to check for an existing League before upserting. */
 export interface LeagueDeduplicationKey {
   readonly externalId: string;
+  readonly sportSlug: string;
 }
 
 /** Lookup key used to check for an existing Team before upserting. */
 export interface TeamDeduplicationKey {
   readonly externalId: string;
+  readonly sportSlug: string;
 }
 
 /** Lookup key used to check for an existing Match before upserting. */

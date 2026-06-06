@@ -5,6 +5,8 @@ import type { Logger } from '@/lib/logger';
 import { DatabaseError } from '@/lib/errors';
 import { translatePrismaError } from '@/lib/prisma';
 
+const UPSERT_CONCURRENCY = 10;
+
 export class MatchRepository implements IMatchRepository {
   private readonly _prisma: PrismaClient;
   private readonly _logger: Logger;
@@ -30,6 +32,9 @@ export class MatchRepository implements IMatchRepository {
     const { create, update } = input;
 
     try {
+      // Read current state to detect content changes and get the existing ID.
+      // An update on an already-existing record cannot race to P2002, so findUnique
+      // + update is safe here. Only the create path needs to be atomic (see below).
       const existing = await this._prisma.match.findUnique({
         where: { externalId: create.externalId },
         select: { id: true, status: true, homeScore: true, awayScore: true, result: true },
@@ -96,8 +101,13 @@ export class MatchRepository implements IMatchRepository {
         });
       }
 
-      const created = await this._prisma.match.create({
-        data: {
+      // Native upsert for the create path: if two workers both see "not exists" and
+      // both reach this point, one creates and the other's upsert becomes an update
+      // with the same payload — no P2002. Prisma's @updatedAt distinguishes the two
+      // outcomes: createdAt === updatedAt means this worker won the create race.
+      const record = await this._prisma.match.upsert({
+        where: { externalId: create.externalId },
+        create: {
           externalId: create.externalId,
           sportId,
           leagueId: league.id,
@@ -110,11 +120,22 @@ export class MatchRepository implements IMatchRepository {
           result: create.result,
           lastFetchedAt: update.lastFetchedAt,
         },
-        select: { id: true },
+        update: {
+          status: update.status,
+          homeScore: update.homeScore,
+          awayScore: update.awayScore,
+          result: update.result,
+          lastFetchedAt: update.lastFetchedAt,
+        },
+        select: { id: true, createdAt: true, updatedAt: true },
       });
 
-      this._logger.debug({ externalId: create.externalId }, 'Match created');
-      return { id: created.id, action: 'created' };
+      const action: EntityWriteAction =
+        record.createdAt.getTime() === record.updatedAt.getTime() ? 'created' : 'updated';
+      if (action === 'created') {
+        this._logger.debug({ externalId: create.externalId }, 'Match created');
+      }
+      return { id: record.id, action };
     } catch (err) {
       if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(err, `Failed to upsert match: ${create.externalId}`);
@@ -124,7 +145,14 @@ export class MatchRepository implements IMatchRepository {
   async upsertMany(inputs: readonly MatchUpsertInput[]): Promise<{
     results: Array<{ id: string; action: EntityWriteAction }>;
   }> {
-    const results = await Promise.all(inputs.map(input => this.upsert(input)));
+    // Match externalIds are globally unique (source-namespaced "oa:" / "ps:"), so
+    // no in-batch deduplication is required. Concurrency is capped to avoid exhausting
+    // the Neon PgBouncer connection pool on large sync batches.
+    const results: Array<{ id: string; action: EntityWriteAction }> = [];
+    for (let i = 0; i < inputs.length; i += UPSERT_CONCURRENCY) {
+      const batch = inputs.slice(i, i + UPSERT_CONCURRENCY);
+      results.push(...(await Promise.all(batch.map(input => this.upsert(input)))));
+    }
     return { results };
   }
 

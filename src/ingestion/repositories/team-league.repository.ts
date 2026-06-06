@@ -5,6 +5,8 @@ import type { Logger } from '@/lib/logger';
 import { DatabaseError } from '@/lib/errors';
 import { translatePrismaError } from '@/lib/prisma';
 
+const UPSERT_CONCURRENCY = 10;
+
 export class TeamLeagueRepository implements ITeamLeagueRepository {
   private readonly _prisma: PrismaClient;
   private readonly _logger: Logger;
@@ -72,7 +74,11 @@ export class TeamLeagueRepository implements ITeamLeagueRepository {
   async upsertMany(inputs: readonly CanonicalTeamLeague[]): Promise<{
     results: Array<{ id: string; action: EntityWriteAction }>;
   }> {
-    const results = await Promise.all(inputs.map(input => this.upsert(input)));
+    const results: Array<{ id: string; action: EntityWriteAction }> = [];
+    for (let i = 0; i < inputs.length; i += UPSERT_CONCURRENCY) {
+      const batch = inputs.slice(i, i + UPSERT_CONCURRENCY);
+      results.push(...(await Promise.all(batch.map(input => this.upsert(input)))));
+    }
     return { results };
   }
 

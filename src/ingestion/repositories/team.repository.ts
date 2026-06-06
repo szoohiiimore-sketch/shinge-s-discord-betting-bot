@@ -5,6 +5,8 @@ import type { Logger } from '@/lib/logger';
 import { DatabaseError } from '@/lib/errors';
 import { translatePrismaError } from '@/lib/prisma';
 
+const UPSERT_CONCURRENCY = 10;
+
 export class TeamRepository implements ITeamRepository {
   private readonly _prisma: PrismaClient;
   private readonly _logger: Logger;
@@ -14,20 +16,16 @@ export class TeamRepository implements ITeamRepository {
     this._logger = logger.child({ repository: 'TeamRepository' });
   }
 
-  /**
-   * Resolves a team ID by externalId alone.
-   * Uses findFirst because the schema unique key is (sportId, externalId).
-   * Safe in practice: The Odds API synthesised slugs and PandaScore team IDs
-   * are unique within their respective sport domains.
-   */
   async findId(key: TeamDeduplicationKey): Promise<string | null> {
     try {
-      const record = await this._prisma.team.findFirst({
-        where: { externalId: key.externalId },
+      const sportId = await this._resolveSportId(key.sportSlug);
+      const record = await this._prisma.team.findUnique({
+        where: { sportId_externalId: { sportId, externalId: key.externalId } },
         select: { id: true },
       });
       return record?.id ?? null;
     } catch (err) {
+      if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(err, `Failed to find team: ${key.externalId}`);
     }
   }
@@ -35,36 +33,27 @@ export class TeamRepository implements ITeamRepository {
   async upsert(input: CanonicalTeam): Promise<{ id: string; action: EntityWriteAction }> {
     try {
       const sportId = await this._resolveSportId(input.sportSlug);
-
-      const existing = await this._prisma.team.findUnique({
+      // Native upsert is atomic — concurrent calls with the same (sportId, externalId)
+      // will not race to a P2002. Prisma's @updatedAt is bumped on every update path,
+      // so action is 'created' when createdAt === updatedAt, 'updated' otherwise.
+      const record = await this._prisma.team.upsert({
         where: { sportId_externalId: { sportId, externalId: input.externalId } },
-        select: { id: true, name: true, slug: true },
+        create: {
+          externalId: input.externalId,
+          name: input.name,
+          slug: input.slug,
+          sportId,
+        },
+        update: { name: input.name, slug: input.slug },
+        select: { id: true, createdAt: true, updatedAt: true },
       });
-
-      if (!existing) {
-        const created = await this._prisma.team.create({
-          data: {
-            externalId: input.externalId,
-            name: input.name,
-            slug: input.slug,
-            sportId,
-          },
-          select: { id: true },
-        });
-        this._logger.debug({ externalId: input.externalId, sportSlug: input.sportSlug }, 'Team created');
-        return { id: created.id, action: 'created' };
-      }
-
-      if (existing.name !== input.name || existing.slug !== input.slug) {
-        await this._prisma.team.update({
-          where: { sportId_externalId: { sportId, externalId: input.externalId } },
-          data: { name: input.name, slug: input.slug },
-        });
-        this._logger.debug({ externalId: input.externalId }, 'Team updated');
-        return { id: existing.id, action: 'updated' };
-      }
-
-      return { id: existing.id, action: 'skipped' };
+      const action: EntityWriteAction =
+        record.createdAt.getTime() === record.updatedAt.getTime() ? 'created' : 'updated';
+      this._logger.debug(
+        { externalId: input.externalId, sportSlug: input.sportSlug, action },
+        'Team upserted',
+      );
+      return { id: record.id, action };
     } catch (err) {
       if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(err, `Failed to upsert team: ${input.externalId}`);
@@ -74,7 +63,21 @@ export class TeamRepository implements ITeamRepository {
   async upsertMany(inputs: readonly CanonicalTeam[]): Promise<{
     results: Array<{ id: string; action: EntityWriteAction }>;
   }> {
-    const results = await Promise.all(inputs.map(input => this.upsert(input)));
+    // Deduplicate by (sportSlug, externalId) — the same team appears in multiple
+    // match fixtures within a single sync batch (both home and away across games).
+    const seen = new Set<string>();
+    const unique = inputs.filter(i => {
+      const key = `${i.sportSlug}:${i.externalId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const results: Array<{ id: string; action: EntityWriteAction }> = [];
+    for (let i = 0; i < unique.length; i += UPSERT_CONCURRENCY) {
+      const batch = unique.slice(i, i + UPSERT_CONCURRENCY);
+      results.push(...(await Promise.all(batch.map(input => this.upsert(input)))));
+    }
     return { results };
   }
 

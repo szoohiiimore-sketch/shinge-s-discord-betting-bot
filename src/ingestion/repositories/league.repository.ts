@@ -5,6 +5,8 @@ import type { Logger } from '@/lib/logger';
 import { DatabaseError } from '@/lib/errors';
 import { translatePrismaError } from '@/lib/prisma';
 
+const UPSERT_CONCURRENCY = 10;
+
 export class LeagueRepository implements ILeagueRepository {
   private readonly _prisma: PrismaClient;
   private readonly _logger: Logger;
@@ -14,20 +16,16 @@ export class LeagueRepository implements ILeagueRepository {
     this._logger = logger.child({ repository: 'LeagueRepository' });
   }
 
-  /**
-   * Resolves a league ID by externalId alone.
-   * Uses findFirst because the schema unique key is (sportId, externalId).
-   * Safe in practice: The Odds API sport keys and PandaScore league IDs
-   * are globally unique within their respective domains, and domains do not overlap.
-   */
   async findId(key: LeagueDeduplicationKey): Promise<string | null> {
     try {
-      const record = await this._prisma.league.findFirst({
-        where: { externalId: key.externalId },
+      const sportId = await this._resolveSportId(key.sportSlug);
+      const record = await this._prisma.league.findUnique({
+        where: { sportId_externalId: { sportId, externalId: key.externalId } },
         select: { id: true },
       });
       return record?.id ?? null;
     } catch (err) {
+      if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(err, `Failed to find league: ${key.externalId}`);
     }
   }
@@ -35,36 +33,27 @@ export class LeagueRepository implements ILeagueRepository {
   async upsert(input: CanonicalLeague): Promise<{ id: string; action: EntityWriteAction }> {
     try {
       const sportId = await this._resolveSportId(input.sportSlug);
-
-      const existing = await this._prisma.league.findUnique({
+      // Native upsert is atomic — concurrent calls with the same (sportId, externalId)
+      // will not race to a P2002. Prisma's @updatedAt is bumped on every update path,
+      // so action is 'created' when createdAt === updatedAt, 'updated' otherwise.
+      const record = await this._prisma.league.upsert({
         where: { sportId_externalId: { sportId, externalId: input.externalId } },
-        select: { id: true, name: true, slug: true },
+        create: {
+          externalId: input.externalId,
+          name: input.name,
+          slug: input.slug,
+          sportId,
+        },
+        update: { name: input.name, slug: input.slug },
+        select: { id: true, createdAt: true, updatedAt: true },
       });
-
-      if (!existing) {
-        const created = await this._prisma.league.create({
-          data: {
-            externalId: input.externalId,
-            name: input.name,
-            slug: input.slug,
-            sportId,
-          },
-          select: { id: true },
-        });
-        this._logger.debug({ externalId: input.externalId, sportSlug: input.sportSlug }, 'League created');
-        return { id: created.id, action: 'created' };
-      }
-
-      if (existing.name !== input.name || existing.slug !== input.slug) {
-        await this._prisma.league.update({
-          where: { sportId_externalId: { sportId, externalId: input.externalId } },
-          data: { name: input.name, slug: input.slug },
-        });
-        this._logger.debug({ externalId: input.externalId }, 'League updated');
-        return { id: existing.id, action: 'updated' };
-      }
-
-      return { id: existing.id, action: 'skipped' };
+      const action: EntityWriteAction =
+        record.createdAt.getTime() === record.updatedAt.getTime() ? 'created' : 'updated';
+      this._logger.debug(
+        { externalId: input.externalId, sportSlug: input.sportSlug, action },
+        'League upserted',
+      );
+      return { id: record.id, action };
     } catch (err) {
       if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(err, `Failed to upsert league: ${input.externalId}`);
@@ -74,7 +63,21 @@ export class LeagueRepository implements ILeagueRepository {
   async upsertMany(inputs: readonly CanonicalLeague[]): Promise<{
     results: Array<{ id: string; action: EntityWriteAction }>;
   }> {
-    const results = await Promise.all(inputs.map(input => this.upsert(input)));
+    // Deduplicate by (sportSlug, externalId) — same league may appear across multiple
+    // matches in the batch (e.g. every EPL match references the same EPL league record).
+    const seen = new Set<string>();
+    const unique = inputs.filter(i => {
+      const key = `${i.sportSlug}:${i.externalId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const results: Array<{ id: string; action: EntityWriteAction }> = [];
+    for (let i = 0; i < unique.length; i += UPSERT_CONCURRENCY) {
+      const batch = unique.slice(i, i + UPSERT_CONCURRENCY);
+      results.push(...(await Promise.all(batch.map(input => this.upsert(input)))));
+    }
     return { results };
   }
 
