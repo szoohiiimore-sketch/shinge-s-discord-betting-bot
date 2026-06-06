@@ -1,0 +1,94 @@
+import type { PrismaClient } from '@prisma/client';
+import type { TeamRepository as ITeamRepository } from '@/ingestion/repositories/contracts';
+import type { TeamDeduplicationKey, EntityWriteAction, CanonicalTeam } from '@/ingestion/contracts';
+import type { Logger } from '@/lib/logger';
+import { DatabaseError } from '@/lib/errors';
+import { translatePrismaError } from '@/lib/prisma';
+
+export class TeamRepository implements ITeamRepository {
+  private readonly _prisma: PrismaClient;
+  private readonly _logger: Logger;
+
+  constructor(prisma: PrismaClient, logger: Logger) {
+    this._prisma = prisma;
+    this._logger = logger.child({ repository: 'TeamRepository' });
+  }
+
+  /**
+   * Resolves a team ID by externalId alone.
+   * Uses findFirst because the schema unique key is (sportId, externalId).
+   * Safe in practice: The Odds API synthesised slugs and PandaScore team IDs
+   * are unique within their respective sport domains.
+   */
+  async findId(key: TeamDeduplicationKey): Promise<string | null> {
+    try {
+      const record = await this._prisma.team.findFirst({
+        where: { externalId: key.externalId },
+        select: { id: true },
+      });
+      return record?.id ?? null;
+    } catch (err) {
+      throw translatePrismaError(err, `Failed to find team: ${key.externalId}`);
+    }
+  }
+
+  async upsert(input: CanonicalTeam): Promise<{ id: string; action: EntityWriteAction }> {
+    try {
+      const sportId = await this._resolveSportId(input.sportSlug);
+
+      const existing = await this._prisma.team.findUnique({
+        where: { sportId_externalId: { sportId, externalId: input.externalId } },
+        select: { id: true, name: true, slug: true },
+      });
+
+      if (!existing) {
+        const created = await this._prisma.team.create({
+          data: {
+            externalId: input.externalId,
+            name: input.name,
+            slug: input.slug,
+            sportId,
+          },
+          select: { id: true },
+        });
+        this._logger.debug({ externalId: input.externalId, sportSlug: input.sportSlug }, 'Team created');
+        return { id: created.id, action: 'created' };
+      }
+
+      if (existing.name !== input.name || existing.slug !== input.slug) {
+        await this._prisma.team.update({
+          where: { sportId_externalId: { sportId, externalId: input.externalId } },
+          data: { name: input.name, slug: input.slug },
+        });
+        this._logger.debug({ externalId: input.externalId }, 'Team updated');
+        return { id: existing.id, action: 'updated' };
+      }
+
+      return { id: existing.id, action: 'skipped' };
+    } catch (err) {
+      if (err instanceof DatabaseError) throw err;
+      throw translatePrismaError(err, `Failed to upsert team: ${input.externalId}`);
+    }
+  }
+
+  async upsertMany(inputs: readonly CanonicalTeam[]): Promise<{
+    results: Array<{ id: string; action: EntityWriteAction }>;
+  }> {
+    const results = await Promise.all(inputs.map(input => this.upsert(input)));
+    return { results };
+  }
+
+  private async _resolveSportId(sportSlug: string): Promise<string> {
+    const sport = await this._prisma.sport.findUnique({
+      where: { slug: sportSlug },
+      select: { id: true },
+    });
+    if (!sport) {
+      throw new DatabaseError(`Sport not found for slug: ${sportSlug}`, {
+        retryable: false,
+        context: { sportSlug },
+      });
+    }
+    return sport.id;
+  }
+}
