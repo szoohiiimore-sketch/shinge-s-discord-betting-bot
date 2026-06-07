@@ -91,6 +91,9 @@ export class OddsSnapshotIngestionService {
 
     const rawEvents = await this._oddsApiClient.getOdds(sportKey, {
       eventIds: apiEventIds.join(','),
+      regions: 'eu,us,uk',
+      markets: 'h2h',
+      oddsFormat: 'decimal',
     });
 
     this._logger.debug(

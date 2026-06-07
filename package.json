@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch --env-file=.env src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "lint": "eslint src/ --ext .ts",
@@ -18,6 +18,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
+    "validate:pipeline": "tsx --env-file=.env src/scripts/validate-esports-pipeline.ts",
     "db:reset": "tsx scripts/reset-db.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:studio": "prisma studio"

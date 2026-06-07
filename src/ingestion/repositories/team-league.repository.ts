@@ -44,24 +44,21 @@ export class TeamLeagueRepository implements ITeamLeagueRepository {
         });
       }
 
-      const existing = await this._prisma.teamLeague.findUnique({
+      // Native upsert: atomic INSERT … ON CONFLICT DO UPDATE eliminates the
+      // find-then-create race that caused P2002 under concurrent Promise.all.
+      // TeamLeague has no updatedAt, so action detection is not possible;
+      // 'created' is returned unconditionally — callers discard this value.
+      const record = await this._prisma.teamLeague.upsert({
         where: { teamId_leagueId: { teamId: team.id, leagueId: league.id } },
-        select: { id: true },
-      });
-
-      if (existing) {
-        return { id: existing.id, action: 'skipped' };
-      }
-
-      const created = await this._prisma.teamLeague.create({
-        data: { teamId: team.id, leagueId: league.id },
+        create: { teamId: team.id, leagueId: league.id },
+        update: { status: 'ACTIVE' },
         select: { id: true },
       });
       this._logger.debug(
         { teamExternalId: input.teamExternalId, leagueExternalId: input.leagueExternalId },
-        'TeamLeague created',
+        'TeamLeague upserted',
       );
-      return { id: created.id, action: 'created' };
+      return { id: record.id, action: 'created' };
     } catch (err) {
       if (err instanceof DatabaseError) throw err;
       throw translatePrismaError(

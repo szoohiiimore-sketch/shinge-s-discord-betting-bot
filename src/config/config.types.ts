@@ -17,12 +17,16 @@ export interface DiscordConfig {
   token: string;
   clientId: string;
   guildId: string;
+  alertChannelId: string;
+  /** Optional — enables outcome and daily-summary notifications when set. */
+  outcomesChannelId?: string;
 }
 
 export interface ApiConfig {
   theOddsApiKey: string;
   pandascoreApiKey: string;
   deepseekApiKey: string;
+  oddsPapiApiKey: string;
 }
 
 export interface BettingConfig {

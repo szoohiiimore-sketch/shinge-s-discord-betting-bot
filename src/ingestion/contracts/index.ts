@@ -58,6 +58,11 @@ export type {
   SyncTraditionalSportJobData,
   SyncEsportsGameJobData,
   SyncReferenceDataJobData,
+  SyncOddsForSportJobData,
+  SyncEsportsOddsJobData,
+  SettleMatchesJobData,
+  DailySummaryJobData,
   MatchFetchJobName,
   MatchFetchJobPayload,
+  OddsFetchJobPayload,
 } from './queue-payload.types';

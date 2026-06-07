@@ -7,14 +7,9 @@ import { QueueName, DEFAULT_WORKER_OPTIONS, type WorkerCollection } from './queu
 /**
  * Placeholder job processor.
  *
- * This is a temporary processor that will be replaced when
- * actual job handlers are implemented in later phases.
- * It prevents workers from crashing on unknown jobs.
- *
- * @param job - The BullMQ job
+ * Throws when no processor is registered for a queue.
  */
 async function placeholderProcessor(job: { name: string; data: unknown }): Promise<void> {
-  // TODO: Replace with actual job processors in later phases
   throw new Error(
     `No processor registered for queue. ` +
     `Job: ${job.name}, Data: ${JSON.stringify(job.data)}`,
@@ -27,23 +22,20 @@ async function placeholderProcessor(job: { name: string; data: unknown }): Promi
  * Each worker is configured with:
  * - A connection to the shared Redis instance
  * - Default worker options (concurrency, lock duration, stall interval)
- * - A placeholder processor (to be replaced in later phases)
+ * - A user-supplied processor function, or placeholderProcessor if none provided
  *
- * Workers are created in a paused state by default. They must be
- * explicitly resumed after all workers are created.
+ * Workers are created in a paused state by default.
  *
  * @param redis - Redis instance (shared with queues)
  * @param logger - Logger instance
+ * @param processors - Optional map of queue name to processor function.
+ *                     Overrides placeholderProcessor for specific queues.
  * @returns A collection of Worker instances, one per QueueName
- *
- * @example
- * const workers = createWorkers(redis, logger);
- * // Workers are paused — resume when ready
- * await Promise.all(Object.values(workers).map(w => w.resume()));
  */
 export function createWorkers(
   redis: Redis,
   logger: Logger,
+  processors?: Partial<Record<QueueName, (job: any) => Promise<unknown>>>,
 ): WorkerCollection {
   logger.info('Creating BullMQ workers');
 
@@ -51,20 +43,20 @@ export function createWorkers(
 
   for (const name of Object.values(QueueName)) {
     try {
+      const processor = processors?.[name] ?? placeholderProcessor;
+
       const worker = new Worker(
         name,
-        placeholderProcessor,
+        processor,
         {
           connection: redis as unknown as import('bullmq').ConnectionOptions,
           concurrency: DEFAULT_WORKER_OPTIONS.concurrency,
           lockDuration: DEFAULT_WORKER_OPTIONS.lockDuration,
           stalledInterval: DEFAULT_WORKER_OPTIONS.stalledInterval,
-          // Start in paused state — resume after all workers are created
           autorun: false,
         },
       );
 
-      // Log worker events
       worker.on('completed', (job) => {
         logger.debug(
           { queue: name, jobId: job.id, jobName: job.name },
@@ -108,15 +100,6 @@ export function createWorkers(
   return workers as WorkerCollection;
 }
 
-/**
- * Resumes all Worker instances (starts processing jobs).
- *
- * Workers are created in a paused state. Call this after all
- * workers are created to begin processing.
- *
- * @param workers - Collection of Worker instances
- * @param logger - Logger instance
- */
 export async function resumeWorkers(
   workers: WorkerCollection,
   logger: Logger,
@@ -133,14 +116,6 @@ export async function resumeWorkers(
   }
 }
 
-/**
- * Pauses all Worker instances (stops processing new jobs).
- *
- * In-progress jobs are allowed to complete.
- *
- * @param workers - Collection of Worker instances
- * @param logger - Logger instance
- */
 export async function pauseWorkers(
   workers: WorkerCollection,
   logger: Logger,
@@ -157,15 +132,6 @@ export async function pauseWorkers(
   }
 }
 
-/**
- * Closes all Worker instances gracefully.
- *
- * Waits for active jobs to complete (up to 30 seconds),
- * then closes the workers.
- *
- * @param workers - Collection of Worker instances
- * @param logger - Logger instance
- */
 export async function closeWorkers(
   workers: WorkerCollection,
   logger: Logger,

@@ -12,11 +12,17 @@ const schema = z
     DISCORD_GUILD_ID: z
       .string()
       .min(1, 'DISCORD_GUILD_ID is required'),
+    DISCORD_ALERT_CHANNEL_ID: z
+      .string()
+      .min(1, 'DISCORD_ALERT_CHANNEL_ID is required'),
+    DISCORD_OUTCOMES_CHANNEL_ID: z.string().optional(),
   })
   .transform((env) => ({
     token: env.DISCORD_TOKEN,
     clientId: env.DISCORD_CLIENT_ID,
     guildId: env.DISCORD_GUILD_ID,
+    alertChannelId: env.DISCORD_ALERT_CHANNEL_ID,
+    outcomesChannelId: env.DISCORD_OUTCOMES_CHANNEL_ID,
   }));
 
 export function loadDiscordConfig(env: Record<string, string | undefined>): DiscordConfig {

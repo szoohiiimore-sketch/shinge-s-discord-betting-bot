@@ -32,3 +32,5 @@ export type { NotFoundErrorOptions } from './not-found-error';
 
 export { BusinessRuleError } from './business-rule-error';
 export type { BusinessRuleErrorOptions } from './business-rule-error';
+
+export { QuotaExhaustedError } from './quota-exhausted-error';

@@ -10,6 +10,7 @@ import type {
   GetSportsResponse,
   GetOddsResponse,
   GetHistoricalOddsResponse,
+  GetScoresResponse,
   OddsRequestParams,
   HistoricalOddsRequestParams,
 } from './types';
@@ -79,6 +80,13 @@ export class ResilientOddsApiClient implements OddsApiClient {
     return this.executeWithResilience(
       () => this.inner.getHistoricalOdds(sportKey, params),
       'getHistoricalOdds',
+    );
+  }
+
+  async getScores(sportKey: string, daysFrom?: number): Promise<GetScoresResponse> {
+    return this.executeWithResilience(
+      () => this.inner.getScores(sportKey, daysFrom),
+      'getScores',
     );
   }
 

@@ -23,6 +23,9 @@ export type {
   RateLimitInfo,
   OddsRequestParams,
   HistoricalOddsRequestParams,
+  ScoreEntry,
+  EventScore,
+  GetScoresResponse,
 } from './types';
 
 // Resilience layer

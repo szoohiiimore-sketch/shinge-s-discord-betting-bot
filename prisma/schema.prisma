@@ -107,6 +107,12 @@ enum PredictionResult {
   VOID
 }
 
+enum BetResult {
+  WIN
+  LOSS
+  PUSH
+}
+
 // ──────────────────────────────────────────────
 // MODELS
 // ──────────────────────────────────────────────
@@ -255,9 +261,10 @@ model Match {
   league        League         @relation("LeagueMatches", fields: [leagueId], references: [id], onDelete: Restrict)
   homeTeam      Team           @relation("TeamHomeMatches", fields: [homeTeamId], references: [id], onDelete: Restrict)
   awayTeam      Team           @relation("TeamAwayMatches", fields: [awayTeamId], references: [id], onDelete: Restrict)
-  oddsSnapshots OddsSnapshot[] @relation("MatchOddsSnapshots")
-  analyses      Analysis[]     @relation("MatchAnalyses")
-  predictions   Prediction[]   @relation("MatchPredictions")
+  oddsSnapshots      OddsSnapshot[]      @relation("MatchOddsSnapshots")
+  analyses           Analysis[]          @relation("MatchAnalyses")
+  predictions        Prediction[]        @relation("MatchPredictions")
+  valueOpportunities ValueOpportunity[]  @relation("MatchValueOpportunities")
 
   @@unique([externalId])
   @@index([sportId])
@@ -351,4 +358,36 @@ model Prediction {
   @@index([status])
   @@index([createdAt])
   @@map("predictions")
+}
+
+model ValueOpportunity {
+  id                   String   @id @default(uuid()) @map("id") @db.Uuid
+  matchId              String   @map("match_id") @db.Uuid
+  sport                String   @map("sport")
+  bookmaker            String   @map("bookmaker")
+  outcome              String   @map("outcome")
+  bookmakerOdds        Decimal  @map("bookmaker_odds")
+  fairOdds             Decimal  @map("fair_odds")
+  edgePercentage       Decimal  @map("edge_percentage")
+  consensusProbability Decimal  @map("consensus_probability")
+  consensusBookmakers  String[] @map("consensus_bookmakers")
+  capturedAt           DateTime  @map("captured_at")
+  alertedAt            DateTime? @map("alerted_at")
+  settledAt            DateTime? @map("settled_at")
+  betResult            BetResult? @map("bet_result")
+  profitLossUnits      Decimal?  @map("profit_loss_units")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  match Match @relation("MatchValueOpportunities", fields: [matchId], references: [id], onDelete: Restrict)
+
+  @@unique([matchId, bookmaker, outcome, capturedAt])
+  @@index([matchId])
+  @@index([edgePercentage])
+  @@index([capturedAt])
+  @@index([alertedAt])
+  @@index([settledAt])
+  @@index([betResult])
+  @@index([createdAt])
+  @@map("value_opportunities")
 }

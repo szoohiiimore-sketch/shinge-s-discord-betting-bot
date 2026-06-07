@@ -39,7 +39,20 @@ export function createLogger(config: LoggerConfig): Logger {
       censor: '[REDACTED]',
     },
     serializers: {
-      err: pino.stdSerializers.err,
+      err: (err: unknown): unknown => {
+        if (err == null || typeof err !== 'object') return err;
+        try {
+          return pino.stdSerializers.err(err as Error);
+        } catch {
+          const e = err as Error;
+          return {
+            type: e.constructor?.name ?? 'Error',
+            message: typeof e.message === 'string' ? e.message : String(e),
+            name: e.name,
+            stack: e.stack,
+          };
+        }
+      },
     },
     base: undefined, // Omit pid, hostname from all logs
     timestamp: pino.stdTimeFunctions.isoTime,

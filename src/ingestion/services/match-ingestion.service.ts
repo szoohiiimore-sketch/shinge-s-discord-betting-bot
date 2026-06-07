@@ -1,5 +1,5 @@
 import type { OddsApiClient } from '@/integrations/the-odds-api';
-import type { PandascoreClient } from '@/integrations/pandascore';
+import type { PandascoreClient, VideogameKey } from '@/integrations/pandascore';
 import { OddsApiEventMapper } from '@/ingestion/mappers';
 import type { PandascoreMatchMapper } from '@/ingestion/contracts';
 import type {
@@ -16,9 +16,18 @@ import type { TeamRepository } from '@/ingestion/repositories/contracts';
 import type { MatchRepository } from '@/ingestion/repositories/contracts';
 import type { TeamLeagueRepository } from '@/ingestion/repositories/contracts';
 import type { Logger } from '@/lib/logger';
+import { ExternalApiError } from '@/lib/errors';
 import type { TraditionalMatchIngestionResult, EsportsMatchIngestionResult } from './types';
 
 const NEAR_TERM_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/** Translates domain EsportsVideogame keys to PandaScore API URL-path slugs. */
+const ESPORTS_TO_PANDASCORE_SLUG: Record<EsportsVideogame, VideogameKey> = {
+  cs2:      'csgo',
+  valorant: 'valorant',
+  lol:      'lol',
+  dota2:    'dota2',
+};
 
 const EMPTY_OUTCOME: EntityWriteOutcome = { created: 0, updated: 0, skipped: 0 };
 
@@ -108,7 +117,32 @@ export class MatchIngestionService {
 
     this._logger.info({ sportKey, sportSlug: sport.slug }, 'Starting traditional sport match ingestion');
 
-    const rawEvents = await this._oddsApiClient.getOdds(sportKey);
+    // The Odds API requires at minimum a 'regions' parameter. Without it, the API
+    // returns HTTP 422 "Missing regions or bookmakers key".
+    let rawEvents;
+    try {
+      rawEvents = await this._oddsApiClient.getOdds(sportKey, {
+        regions: 'eu,us,uk',
+        markets: 'h2h,spreads,totals',
+        oddsFormat: 'decimal',
+      });
+    } catch (err) {
+      // Sport key may be inactive or unknown (e.g. tennis tournament key changed).
+      // Log a clear warning and return empty result — do not fail the pipeline.
+      if (err instanceof ExternalApiError && err.context?.statusCode === 404) {
+        this._logger.warn({ sportKey, err: err.message }, 'Sport key not found — skipping (may be inactive tournament key)');
+        return {
+          sports: { created: 0, updated: 0, skipped: 0 },
+          leagues: { created: 0, updated: 0, skipped: 0 },
+          teams: { created: 0, updated: 0, skipped: 0 },
+          matches: { created: 0, updated: 0, skipped: 0 },
+          nearTermMatchExternalIds: [],
+          errors: [],
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      throw err;
+    }
     const capturedAt = new Date();
 
     this._logger.debug({ sportKey, eventCount: rawEvents.length }, 'Fetched events from The Odds API');
@@ -135,7 +169,19 @@ export class MatchIngestionService {
     const canonicalSports = plans.map(p => p.sport);
     const canonicalLeagues = plans.map(p => p.league);
     const canonicalTeams = plans.flatMap(p => [p.homeTeam, p.awayTeam]);
-    const canonicalTeamLeagues = plans.flatMap(p => [...p.teamLeagues]);
+
+    // Deduplicate TeamLeague entries before writing — the same (sport, team, league)
+    // tuple can appear across multiple matches and would cause concurrent P2002 violations.
+    const _tlSeen = new Set<string>();
+    const canonicalTeamLeagues = plans
+      .flatMap(p => [...p.teamLeagues])
+      .filter(tl => {
+        const key = `${tl.sportSlug}:${tl.teamExternalId}:${tl.leagueExternalId}`;
+        if (_tlSeen.has(key)) return false;
+        _tlSeen.add(key);
+        return true;
+      });
+
     const matchInputs: MatchUpsertInput[] = plans.map(p => ({
       create: p.match,
       update: {
@@ -202,9 +248,10 @@ export class MatchIngestionService {
 
     this._logger.info({ videogame }, 'Starting esports match ingestion');
 
+    const pandascoreSlug = ESPORTS_TO_PANDASCORE_SLUG[videogame];
     const [upcoming, running] = await Promise.all([
-      this._pandascoreClient.getUpcomingMatches(videogame),
-      this._pandascoreClient.getRunningMatches(videogame),
+      this._pandascoreClient.getUpcomingMatches(pandascoreSlug),
+      this._pandascoreClient.getRunningMatches(pandascoreSlug),
     ]);
 
     // Deduplicate by match ID — a match may appear in both lists if it started
@@ -228,6 +275,7 @@ export class MatchIngestionService {
         leagues: EMPTY_OUTCOME,
         teams: EMPTY_OUTCOME,
         matches: EMPTY_OUTCOME,
+        nearTermMatchExternalIds: [],
         skippedMatches: 0,
         errors: [],
         durationMs: Date.now() - startedAt,
@@ -258,6 +306,7 @@ export class MatchIngestionService {
         leagues: EMPTY_OUTCOME,
         teams: EMPTY_OUTCOME,
         matches: EMPTY_OUTCOME,
+        nearTermMatchExternalIds: [],
         skippedMatches,
         errors: [],
         durationMs: Date.now() - startedAt,
@@ -266,11 +315,29 @@ export class MatchIngestionService {
 
     const capturedAt = new Date();
 
+    // Matches with startTime within the next 48 hours are near-term and need odds.
+    // No lower bound — includes currently-running matches (consistent with traditional path).
+    const cutoff = new Date(capturedAt.getTime() + NEAR_TERM_WINDOW_MS);
+    const nearTermMatchExternalIds = plans
+      .filter(p => p.match.startTime <= cutoff)
+      .map(p => p.match.externalId);
+
     // Extract entity batches from all valid plans
     const canonicalSports = plans.map(p => p.sport);
     const canonicalLeagues = plans.map(p => p.league);
     const canonicalTeams = plans.flatMap(p => [p.homeTeam, p.awayTeam]);
-    const canonicalTeamLeagues = plans.flatMap(p => [...p.teamLeagues]);
+
+    // Deduplicate TeamLeague entries — same tuple can appear across multiple matches.
+    const _tlSeen = new Set<string>();
+    const canonicalTeamLeagues = plans
+      .flatMap(p => [...p.teamLeagues])
+      .filter(tl => {
+        const key = `${tl.sportSlug}:${tl.teamExternalId}:${tl.leagueExternalId}`;
+        if (_tlSeen.has(key)) return false;
+        _tlSeen.add(key);
+        return true;
+      });
+
     const matchInputs: MatchUpsertInput[] = plans.map(p => ({
       create: p.match,
       update: {
@@ -305,6 +372,7 @@ export class MatchIngestionService {
       leagues,
       teams,
       matches,
+      nearTermMatchExternalIds,
       skippedMatches,
       errors: [],
       durationMs,

@@ -1,4 +1,4 @@
-import type { EntityWriteOutcome, SyncError } from '@/ingestion/contracts';
+import type { EsportsVideogame, EntityWriteOutcome, SyncError } from '@/ingestion/contracts';
 
 /**
  * Result returned by ReferenceDataIngestionService.sync().
@@ -31,6 +31,8 @@ export interface TraditionalMatchIngestionResult {
 /**
  * Result returned by MatchIngestionService.ingestEsportsGame().
  * Covers one PandaScore videogame: Sports, Leagues, Teams, Matches, TeamLeagues.
+ * nearTermMatchExternalIds contains "ps:"-prefixed IDs for matches whose startTime
+ * falls within the 48-hour window — these are passed to the esports odds worker.
  * skippedMatches counts matches rejected by the mapper (TBD opponents, missing start time).
  */
 export interface EsportsMatchIngestionResult {
@@ -38,6 +40,7 @@ export interface EsportsMatchIngestionResult {
   readonly leagues: EntityWriteOutcome;
   readonly teams: EntityWriteOutcome;
   readonly matches: EntityWriteOutcome;
+  readonly nearTermMatchExternalIds: readonly string[];
   readonly skippedMatches: number;
   readonly errors: readonly SyncError[];
   readonly durationMs: number;
@@ -50,6 +53,22 @@ export interface EsportsMatchIngestionResult {
  */
 export interface OddsSnapshotIngestionResult {
   readonly oddsSnapshots: EntityWriteOutcome;
+  readonly errors: readonly SyncError[];
+  readonly durationMs: number;
+}
+
+/**
+ * Result returned by EsportsOddsSnapshotIngestionService.ingestOddsForGame().
+ * Covers one OddsPapi videogame: correlation outcomes and OddsSnapshot inserts.
+ * quotaUsedThisCall is 1 if the OddsPapi API was called, 0 if quota-gated.
+ */
+export interface EsportsOddsIngestionResult {
+  readonly videogame: EsportsVideogame;
+  readonly oddsMatchesReceived: number;
+  readonly oddsMatchesCorrelated: number;
+  readonly oddsMatchesSkipped: number;
+  readonly oddsSnapshots: EntityWriteOutcome;
+  readonly quotaUsedThisCall: number;
   readonly errors: readonly SyncError[];
   readonly durationMs: number;
 }

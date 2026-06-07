@@ -4,6 +4,7 @@ import type {
   GetSportsResponse,
   GetOddsResponse,
   GetHistoricalOddsResponse,
+  GetScoresResponse,
   OddsRequestParams,
   HistoricalOddsRequestParams,
 } from './types';
@@ -29,6 +30,9 @@ export interface OddsApiClient {
     sportKey: string,
     params?: HistoricalOddsRequestParams,
   ): Promise<GetHistoricalOddsResponse>;
+
+  /** Fetches recent completed match scores for a sport. daysFrom: 1–3. */
+  getScores(sportKey: string, daysFrom?: number): Promise<GetScoresResponse>;
 }
 
 /**
@@ -72,6 +76,12 @@ export class DefaultOddsApiClient implements OddsApiClient {
     const searchParams = this.buildSearchParams(params);
     const response = await this.request(`/sports/${sportKey}/odds-history`, searchParams);
     return response as GetHistoricalOddsResponse;
+  }
+
+  async getScores(sportKey: string, daysFrom: number = 1): Promise<GetScoresResponse> {
+    const searchParams = this.buildSearchParams({ daysFrom, dateFormat: 'iso' });
+    const response = await this.request(`/sports/${sportKey}/scores`, searchParams);
+    return response as GetScoresResponse;
   }
 
   /**

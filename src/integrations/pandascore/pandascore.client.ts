@@ -49,13 +49,13 @@ export class DefaultPandascoreClient implements PandascoreClient {
   }
 
   async getUpcomingMatches(videogame: VideogameKey): Promise<GetUpcomingMatchesResponse> {
-    const response = await this.request(`/${videogame}/matches/upcoming`);
-    return response as GetUpcomingMatchesResponse;
+    const items = await this.requestPaginated(`/${videogame}/matches/upcoming`);
+    return items as GetUpcomingMatchesResponse;
   }
 
   async getRunningMatches(videogame: VideogameKey): Promise<GetRunningMatchesResponse> {
-    const response = await this.request(`/${videogame}/matches/running`);
-    return response as GetRunningMatchesResponse;
+    const items = await this.requestPaginated(`/${videogame}/matches/running`);
+    return items as GetRunningMatchesResponse;
   }
 
   async getPastMatches(videogame: VideogameKey): Promise<GetPastMatchesResponse> {
@@ -74,11 +74,61 @@ export class DefaultPandascoreClient implements PandascoreClient {
   }
 
   /**
-   * Makes an HTTP GET request to PandaScore API.
+   * Fetches all pages for a paginated endpoint and returns the merged item array.
+   *
+   * Uses X-Total response header to determine total item count. Stops at MAX_PAGES
+   * regardless of X-Total to prevent unbounded fetches.
+   * A 150 ms inter-page delay avoids bursting PandaScore's rate limit.
+   */
+  private async requestPaginated(path: string): Promise<unknown[]> {
+    const PER_PAGE = 100;
+    const MAX_PAGES = 20;
+    const PAGE_DELAY_MS = 150;
+
+    const allItems: unknown[] = [];
+
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const url = new URL(`${this.config.baseUrl}${path}`);
+      url.searchParams.set('per_page', String(PER_PAGE));
+      url.searchParams.set('page', String(page));
+
+      const response = await this._execute(url);
+
+      const data = await response.json() as unknown[];
+      if (!Array.isArray(data) || data.length === 0) break;
+
+      allItems.push(...data);
+
+      const total = parseInt(response.headers.get('X-Total') ?? '0', 10);
+      if (allItems.length >= total || data.length < PER_PAGE) break;
+
+      if (page < MAX_PAGES) {
+        await new Promise<void>((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+      }
+    }
+
+    this.logger.debug({ path, totalFetched: allItems.length }, 'Paginated fetch complete');
+    return allItems;
+  }
+
+  /**
+   * Makes an HTTP GET request to PandaScore API, returning the parsed JSON body.
+   *
+   * Used for single-object endpoints (getMatch, getTeam, getPastMatches).
    */
   private async request(path: string): Promise<unknown> {
     const url = new URL(`${this.config.baseUrl}${path}`);
+    const response = await this._execute(url);
+    return response.json();
+  }
 
+  /**
+   * Executes a single authenticated HTTP GET to PandaScore and returns the raw Response.
+   *
+   * Applies timeout via AbortController and translates non-2xx / network errors
+   * into the typed error hierarchy. Callers are responsible for reading the body.
+   */
+  private async _execute(url: URL): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
@@ -95,33 +145,31 @@ export class DefaultPandascoreClient implements PandascoreClient {
       });
 
       if (!response.ok) {
-        await this.handleErrorResponse(response, path);
+        await this.handleErrorResponse(response, url.pathname);
       }
-
-      const data: unknown = await response.json();
 
       this.logger.debug(
         { path: url.pathname, status: response.status },
         'Received response from PandaScore API',
       );
 
-      return data;
+      return response;
     } catch (error) {
       if (error instanceof ExternalApiError) {
         throw error;
       }
 
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new ExternalApiError(`Request to ${path} timed out after ${this.config.timeoutMs}ms`, {
+        throw new ExternalApiError(`Request to ${url.pathname} timed out after ${this.config.timeoutMs}ms`, {
           retryable: true,
-          context: { api: 'pandascore', endpoint: path, timeoutMs: this.config.timeoutMs },
+          context: { api: 'pandascore', endpoint: url.pathname, timeoutMs: this.config.timeoutMs },
         });
       }
 
-      throw new ExternalApiError(`Request to ${path} failed: ${(error as Error).message}`, {
+      throw new ExternalApiError(`Request to ${url.pathname} failed: ${(error as Error).message}`, {
         retryable: true,
         cause: error instanceof Error ? error : undefined,
-        context: { api: 'pandascore', endpoint: path },
+        context: { api: 'pandascore', endpoint: url.pathname },
       });
     } finally {
       clearTimeout(timeoutId);

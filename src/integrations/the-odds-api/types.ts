@@ -160,6 +160,35 @@ export interface OddsRequestParams {
   readonly bookmakerDetails?: string;
 }
 
+// ──────────────────────────────────────────────
+// Scores Response
+// ──────────────────────────────────────────────
+
+/** A single team score entry within an event scores record. */
+export interface ScoreEntry {
+  readonly name: string;
+  readonly score: string;
+}
+
+/** A completed event entry returned by GET /v4/sports/{sport}/scores. */
+export interface EventScore {
+  readonly id: string;
+  readonly sport_key: string;
+  readonly sport_title: string;
+  readonly commence_time: string;
+  readonly completed: boolean;
+  readonly home_team: string;
+  readonly away_team: string;
+  readonly scores: readonly ScoreEntry[] | null;
+}
+
+/** Response from GET /v4/sports/{sport}/scores. */
+export type GetScoresResponse = readonly EventScore[];
+
+// ──────────────────────────────────────────────
+// Historical Odds Request Parameters
+// ──────────────────────────────────────────────
+
 /** Parameters for GET /v4/sports/{sport}/odds-history. */
 export interface HistoricalOddsRequestParams {
   readonly regions?: string;

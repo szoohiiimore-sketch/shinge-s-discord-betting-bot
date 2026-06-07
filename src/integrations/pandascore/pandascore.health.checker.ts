@@ -49,7 +49,7 @@ export class PandascoreHealthChecker {
 
     try {
       this.logger.debug('Starting PandaScore API health check');
-      await this.client.getUpcomingMatches('cs2');
+      await this.client.getUpcomingMatches('csgo');
       const latencyMs = Math.round(performance.now() - startTime);
 
       const status = this.evaluateStatus(true, true, latencyMs);

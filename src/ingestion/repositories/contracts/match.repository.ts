@@ -25,6 +25,21 @@ export interface MatchRepository {
   findId(key: MatchDeduplicationKey): Promise<string | null>;
 
   /**
+   * Loads multiple matches with their team names by external IDs.
+   * Used by the esports odds correlation step to match OddsPapi matches
+   * against DB matches using team name + time proximity.
+   */
+  findManyWithTeamsByExternalIds(
+    externalIds: readonly string[],
+  ): Promise<Array<{
+    id: string;
+    externalId: string;
+    startTime: Date;
+    homeTeam: { id: string; name: string };
+    awayTeam: { id: string; name: string };
+  }>>;
+
+  /**
    * Idempotent upsert with explicit create/update split.
    *
    * If the externalId does not exist: INSERT using the create payload.

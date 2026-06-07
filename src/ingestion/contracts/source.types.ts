@@ -19,7 +19,7 @@ export type IngestionMatchResult = 'HOME_WIN' | 'AWAY_WIN' | 'DRAW';
 export type IngestionOddsMarket = 'H2H' | 'SPREADS' | 'TOTALS';
 
 /** Esports videogame identifiers supported by PandaScore in V1. */
-export type EsportsVideogame = 'cs2' | 'valorant' | 'lol';
+export type EsportsVideogame = 'cs2' | 'valorant' | 'lol' | 'dota2';
 
 /**
  * A sport competition key as used by The Odds API.

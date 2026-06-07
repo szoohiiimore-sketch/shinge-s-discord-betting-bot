@@ -22,7 +22,17 @@ import {
   stopHealthServer,
 } from '@/lib/health/health-lifecycle';
 import type { QueueCollection, WorkerCollection } from '@/lib/queue/queue-types';
+import type { Processor } from 'bullmq';
+import { QueueName } from '@/lib/queue/queue-types';
 import { ApplicationState, assertValidTransition } from './app-state';
+import {
+  createIngestionDependencies,
+  bootstrapIngestion,
+  scheduleIngestionJobs,
+  SIXTY_MINUTES_MS,
+  FOUR_HOURS_MS,
+  type TraditionalSportScheduleConfig,
+} from '@/ingestion/bootstrap';
 
 /**
  * Dependency container holding references to all initialized infrastructure.
@@ -39,6 +49,41 @@ export interface Dependencies {
   workers: WorkerCollection | undefined | null;
   healthServer: http.Server | undefined | null;
 }
+
+/**
+ * Worker processors registered by the ingestion bootstrap.
+ * These replace the placeholder processors in real BullMQ Workers.
+ */
+export interface WorkerProcessors {
+  readonly matchFetch: Processor;
+  readonly oddsFetch: Processor;
+}
+
+const TRADITIONAL_SPORT_CONFIGS: readonly TraditionalSportScheduleConfig[] = [
+  // ── Tier 1: 60-minute polling ───────────────────────────────────────────────────
+  // League sports with frequent event windows
+  { sportKey: 'icehockey_nhl',           sportGroup: 'Ice Hockey', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'baseball_mlb',            sportGroup: 'Baseball',   intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'basketball_wnba',         sportGroup: 'Basketball', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'soccer_usa_mls',          sportGroup: 'Soccer',     intervalMs: SIXTY_MINUTES_MS },
+
+  // ── Tier 1: Tennis tournaments (60-minute polling) ──────────────────────────────
+  { sportKey: 'tennis_atp_wimbledon',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_us_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_indian_wells',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_miami_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_wimbledon',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_us_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_indian_wells',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_miami_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+
+  // ── Tier 2: 4-hour polling ─────────────────────────────────────────────────────
+  // Slow-moving sports with long event windows
+  { sportKey: 'basketball_nba',           sportGroup: 'Basketball', intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'soccer_epl',               sportGroup: 'Soccer',     intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'soccer_uefa_champs_league', sportGroup: 'Soccer',   intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'americanfootball_ncaaf',   sportGroup: 'Football',   intervalMs: FOUR_HOURS_MS },
+];
 
 function createDependencies(): Dependencies {
   return {
@@ -68,10 +113,16 @@ export class Application {
   private readonly _config: Config;
   private readonly _logger: Logger;
   private readonly _startTime: number = performance.now();
+  private _workerProcessors: WorkerProcessors | null = null;
 
   constructor(config: Config, logger: Logger) {
     this._config = config;
     this._logger = logger;
+  }
+
+  /** Registers real worker processors (called after ingestion bootstrap). */
+  setWorkerProcessors(processors: WorkerProcessors): void {
+    this._workerProcessors = processors;
   }
 
   // ─── Public Accessors ───────────────────────────────────────────
@@ -122,11 +173,37 @@ export class Application {
       this._logger.info('Creating BullMQ queues');
       this._deps.queues = this.initQueues();
 
+      // Bootstrap ingestion dependencies now that Prisma, Redis, and queues exist
+      this._logger.info('Bootstrapping ingestion system');
+      const ingestionDeps = createIngestionDependencies(
+        this._config,
+        this._deps.prisma!,
+        this._deps.redis!,
+        this._logger,
+      );
+      const { matchFetchProcessor, oddsFetchProcessor } = bootstrapIngestion(ingestionDeps, this._logger);
+      this.setWorkerProcessors({ matchFetch: matchFetchProcessor, oddsFetch: oddsFetchProcessor });
+
       this._logger.info('Creating BullMQ workers');
       this._deps.workers = this.initWorkers();
 
       this._logger.info('Starting BullMQ workers');
       await this.startAllWorkers();
+
+      this._logger.info('Registering repeatable ingestion jobs');
+      await scheduleIngestionJobs(
+        this._deps.queues![QueueName.MATCH_FETCH],
+        TRADITIONAL_SPORT_CONFIGS,
+        this._logger,
+      );
+
+      this._logger.info('Logging in to Discord');
+      try {
+        await ingestionDeps.discordBot.login();
+        this._logger.info('Discord bot logged in successfully');
+      } catch (discordErr) {
+        this._logger.warn({ err: (discordErr as Error).message }, 'Discord bot login failed — continuing without slash commands');
+      }
 
       this._logger.info('Starting health check server');
       this._deps.healthServer = await this.initHealthServer();
@@ -135,7 +212,13 @@ export class Application {
       this._logger.info('Application started successfully');
     } catch (err) {
       this.transitionTo(ApplicationState.FAILED);
-      this._logger.error({ err }, 'Application startup failed');
+      // Serialize error to plain object before pino sees it to avoid
+      // pino-std-serializers Symbol collision with non-extensible error objects
+      // from Prisma or other libraries that freeze their errors.
+      const serializedErr = err instanceof Error
+        ? { message: err.message, name: err.name, stack: err.stack, code: (err as any).code }
+        : String(err);
+      this._logger.error({ err: serializedErr }, 'Application startup failed');
       await this.teardown();
       throw err;
     }
@@ -162,7 +245,10 @@ export class Application {
       this._logger.info('Application stopped successfully');
     } catch (err) {
       this.transitionTo(ApplicationState.FAILED);
-      this._logger.error({ err }, 'Application shutdown failed');
+      const serializedErr = err instanceof Error
+        ? { message: err.message, name: err.name, stack: err.stack }
+        : String(err);
+      this._logger.error({ err: serializedErr }, 'Application shutdown failed');
       throw err;
     }
   }
@@ -211,9 +297,15 @@ export class Application {
   }
 
   private initWorkers(): WorkerCollection {
+    const processorMap: Partial<Record<QueueName, (job: any) => Promise<unknown>>> = {};
+    if (this._workerProcessors) {
+      processorMap[QueueName.MATCH_FETCH] = this._workerProcessors.matchFetch;
+      processorMap[QueueName.ODDS_FETCH] = this._workerProcessors.oddsFetch;
+    }
     return createWorkers(
       this._deps.redis!,
       this._logger.child({ module: 'bullmq' }),
+      processorMap,
     );
   }
 

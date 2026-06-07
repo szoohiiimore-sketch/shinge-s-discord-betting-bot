@@ -43,8 +43,8 @@ export function createRedisClient(
       return delay;
     },
 
-    // Max retries per request
-    maxRetriesPerRequest: 3,
+    // Max retries per request (null required by BullMQ workers)
+    maxRetriesPerRequest: null,
   });
 
   // Log connection events

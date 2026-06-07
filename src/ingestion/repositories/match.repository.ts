@@ -28,6 +28,31 @@ export class MatchRepository implements IMatchRepository {
     }
   }
 
+  async findManyWithTeamsByExternalIds(
+    externalIds: readonly string[],
+  ): Promise<Array<{
+    id: string;
+    externalId: string;
+    startTime: Date;
+    homeTeam: { id: string; name: string };
+    awayTeam: { id: string; name: string };
+  }>> {
+    try {
+      return await this._prisma.match.findMany({
+        where: { externalId: { in: [...externalIds] } },
+        select: {
+          id: true,
+          externalId: true,
+          startTime: true,
+          homeTeam: { select: { id: true, name: true } },
+          awayTeam: { select: { id: true, name: true } },
+        },
+      });
+    } catch (err) {
+      throw translatePrismaError(err, 'Failed to find matches by external IDs');
+    }
+  }
+
   async upsert(input: MatchUpsertInput): Promise<{ id: string; action: EntityWriteAction }> {
     const { create, update } = input;
 

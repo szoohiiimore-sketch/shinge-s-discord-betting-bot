@@ -6,7 +6,6 @@ import { Application } from '@/lib/app';
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 async function main(): Promise<void> {
-  // Load and validate all configuration — fail fast on missing or invalid env vars
   let config;
   try {
     config = loadConfig(process.env as Record<string, string | undefined>);
@@ -22,7 +21,6 @@ async function main(): Promise<void> {
     pretty: config.app.nodeEnv !== 'production',
   });
 
-  // Catch process-level errors that escape all other handlers
   process.on('unhandledRejection', (reason) => {
     logger.fatal({ err: reason }, 'Unhandled rejection — exiting');
     process.exit(1);

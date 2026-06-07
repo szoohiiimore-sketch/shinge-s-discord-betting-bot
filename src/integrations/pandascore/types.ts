@@ -11,11 +11,20 @@
 // Union Types
 // ──────────────────────────────────────────────
 
-/** Supported esports video game keys. */
-export type VideogameKey = 'cs2' | 'valorant' | 'lol';
+/**
+ * PandaScore URL-path slugs for supported esports.
+ *
+ * These are the path segments used in PandaScore API endpoints, e.g.
+ * GET /csgo/matches/upcoming — NOT the same as our EsportsVideogame domain keys.
+ * Use ESPORTS_TO_PANDASCORE_SLUG in match-ingestion.service.ts to translate.
+ */
+export type VideogameKey = 'csgo' | 'valorant' | 'lol' | 'dota2';
 
-/** The name of the esports title. */
-export type VideogameName = 'CS:GO' | 'Valorant' | 'LoL';
+/**
+ * Videogame names as returned by the PandaScore API in the `videogame.name` field.
+ * CS2 matches are served under the legacy "Counter-Strike" name on PandaScore.
+ */
+export type VideogameName = 'Counter-Strike' | 'Valorant' | 'LoL' | 'Dota 2';
 
 /** The current status of a match. */
 export type PandascoreMatchStatus =
