@@ -30,11 +30,21 @@ const schema = z
           .int('BETTING_ANALYSIS_BUDGET_DAILY must be an integer')
           .positive('BETTING_ANALYSIS_BUDGET_DAILY must be positive'),
       ),
+    MAX_ALERT_ODDS: z
+      .string()
+      .default('3.0')
+      .pipe(
+        z.coerce
+          .number()
+          .positive('MAX_ALERT_ODDS must be positive')
+          .min(1.01, 'MAX_ALERT_ODDS must be at least 1.01'),
+      ),
   })
   .transform((env) => ({
     defaultBankroll: env.BETTING_DEFAULT_BANKROLL,
     maxConcurrentBets: env.BETTING_MAX_CONCURRENT_BETS,
     analysisBudgetDaily: env.BETTING_ANALYSIS_BUDGET_DAILY,
+    maxAlertOdds: env.MAX_ALERT_ODDS,
   }));
 
 export function loadBettingConfig(env: Record<string, string | undefined>): BettingConfig {

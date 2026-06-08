@@ -95,12 +95,14 @@ export function extractPandascoreScore(
 
 /**
  * Maps an Odds API market key to the canonical IngestionOddsMarket.
- * The mapping is exhaustive — all three OddsMarketKey values are handled.
+ * Returns undefined for unrecognised keys (e.g. Betfair Exchange custom market keys
+ * that are not in the OddsMarketKey union at runtime). Callers must filter these out.
  */
-export function mapOddsMarket(key: OddsMarketKey): IngestionOddsMarket {
+export function mapOddsMarket(key: OddsMarketKey): IngestionOddsMarket | undefined {
   switch (key) {
     case 'h2h':     return 'H2H';
     case 'spreads': return 'SPREADS';
     case 'totals':  return 'TOTALS';
+    default:        return undefined;
   }
 }

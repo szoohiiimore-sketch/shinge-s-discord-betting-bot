@@ -109,6 +109,10 @@ export class OddsApiEventMapper implements IOddsApiEventMapper {
       for (const market of bookmaker.markets) {
         const mappedMarket = mapOddsMarket(market.key);
 
+        // Skip markets with unrecognised keys (e.g. Betfair Exchange non-standard keys).
+        // An undefined key here would cause the entire createMany batch to fail.
+        if (!mappedMarket) continue;
+
         for (const outcome of market.outcomes) {
           snapshots.push({
             matchExternalId,

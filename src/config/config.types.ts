@@ -33,6 +33,7 @@ export interface BettingConfig {
   defaultBankroll: number;
   maxConcurrentBets: number;
   analysisBudgetDaily: number;
+  maxAlertOdds: number;
 }
 
 export interface Config {

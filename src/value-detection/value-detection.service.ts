@@ -4,9 +4,6 @@ import type { ValueDetectionResult, ValueDetectionDecision, ValueOpportunityInse
 import type { ValueOpportunityRepository } from './value-opportunity.repository';
 
 const MIN_EDGE_THRESHOLD_PCT = 5.0;
-// Edges above this threshold indicate data quality problems (e.g. one consensus
-// bookmaker with a grossly incorrect price). A genuine 100%+ edge is not possible
-// in a liquid market where Pinnacle operates.
 const MAX_EDGE_THRESHOLD_PCT = 100;
 const MIN_CONSENSUS_BOOKMAKERS = 2;
 const CANDIDATE_BOOKMAKER = 'pinnacle';
@@ -37,6 +34,7 @@ export class ValueDetectionService {
   constructor(
     prisma: PrismaClient,
     repository: ValueOpportunityRepository,
+    private readonly _maxAlertOdds: number,
     logger: Logger,
   ) {
     this._prisma = prisma;
@@ -161,6 +159,19 @@ export class ValueDetectionService {
         }
 
         const fairOdds = 1 / consensusProbability;
+        // Odds filter: reject opportunities where Pinnacle odds exceed the
+        // configured maximum. Longshots (high odds) produce more volatile and
+        // less reliable edge calculations in thin markets (e.g. WNBA).
+        if (pinnacleOdds > this._maxAlertOdds) {
+          this._decision('ODDS_FILTERED', {
+            matchId, outcome,
+            pinnacleOdds,
+            maxAllowedOdds: this._maxAlertOdds,
+          });
+          skipped++;
+          continue;
+        }
+
         const edgePercentage = ((pinnacleOdds / fairOdds) - 1) * 100;
 
         if (edgePercentage < MIN_EDGE_THRESHOLD_PCT) {

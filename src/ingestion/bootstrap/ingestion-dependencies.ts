@@ -148,7 +148,7 @@ export function createIngestionDependencies(
 
   // ── Value detection ────────────────────────────────────────────────
   const valueOpportunityRepository = new ValueOpportunityRepository(prisma, logger);
-  const valueDetectionService = new ValueDetectionService(prisma, valueOpportunityRepository, logger);
+  const valueDetectionService = new ValueDetectionService(prisma, valueOpportunityRepository, config.betting.maxAlertOdds, logger);
 
   // ── Discord notifications ──────────────────────────────────────────
   const discordNotificationService = new DiscordNotificationService(
