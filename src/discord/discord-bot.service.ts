@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, Events, REST, Routes, ActivityType } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { Redis } from 'ioredis';
 import type { Logger } from '@/lib/logger';
@@ -126,16 +126,16 @@ export class DiscordBotService {
   }
 
   private _registerHandlers(): void {
-    this._client.on(Events.ClientReady, () => {
+    this._client.on(Events.ClientReady, async () => {
       this._logger.info('Discord bot logged in and ready');
+      await this._updatePresence();
     });
 
     this._client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
 
-      // Admin-only check — use interaction.memberPermissions (set by Discord on the payload,
-      // requires no privileged intent or member cache)
-      const isAdmin = interaction.memberPermissions?.has('Administrator') ?? false;
+      const member = interaction.guild?.members.cache.get(interaction.user.id);
+      const isAdmin = member?.permissions.has('Administrator') ?? false;
 
       if (!isAdmin) {
         await interaction.reply({ content: 'This command is admin-only.', ephemeral: true });
@@ -146,7 +146,9 @@ export class DiscordBotService {
         await this._handleCommand(interaction);
       } catch (err) {
         this._logger.error({ err: (err as Error).message, command: interaction.commandName }, 'Command execution failed');
-        await interaction.reply({ content: `Error: ${(err as Error).message}`, ephemeral: true }).catch(() => {});
+        // After deferReply(), only editReply() is valid. Using reply() would fail silently
+        // and leave the interaction in "thinking" state for up to 15 minutes.
+        await interaction.editReply({ content: `Error: ${(err as Error).message}` }).catch(() => {});
       }
     });
   }
@@ -221,13 +223,6 @@ export class DiscordBotService {
     }
   }
 
-  /**
-   * Logs in to Discord and registers slash commands.
-   *
-   * Uses guild-specific registration (Routes.applicationGuildCommands) for
-   * faster development iteration — commands appear immediately without the
-   * 1-hour global propagation delay.
-   */
   async login(): Promise<void> {
     this._logger.info('Logging in to Discord');
     await this._client.login(this._config.token);
@@ -243,6 +238,57 @@ export class DiscordBotService {
       this._logger.info({ count: SLASH_COMMANDS.length }, 'Slash commands registered successfully');
     } catch (err) {
       this._logger.warn({ err: (err as Error).message }, 'Slash command registration failed — bot will still receive interactions if previously registered');
+    }
+  }
+
+  async refreshPresence(): Promise<void> {
+    await this._updatePresence();
+  }
+
+  private async _updatePresence(): Promise<void> {
+    if (!this._client.user) {
+      this._logger.warn('Discord client user not available — skipping presence update');
+      return;
+    }
+
+    try {
+      const settled = await this._prisma.valueOpportunity.findMany({
+        where: { betResult: { not: null } },
+        select: { betResult: true, profitLossUnits: true },
+      });
+
+      let wins = 0;
+      let losses = 0;
+      let totalPL = 0;
+
+      for (const opp of settled) {
+        const pl = opp.profitLossUnits
+          ? (typeof opp.profitLossUnits === 'object' && 'toNumber' in opp.profitLossUnits
+              ? (opp.profitLossUnits as { toNumber(): number }).toNumber()
+              : Number(opp.profitLossUnits))
+          : 0;
+        totalPL += pl;
+
+        if (opp.betResult === 'WIN') wins++;
+        else if (opp.betResult === 'LOSS') losses++;
+      }
+
+      const decidedBets = wins + losses;
+      const roi = decidedBets > 0 ? (totalPL / decidedBets) * 100 : 0;
+      const roiStr = roi > 0 ? `+${roi.toFixed(1)}%` : `${roi.toFixed(1)}%`;
+
+      const sportCount = 54;
+
+      this._client.user.setPresence({
+        activities: [{
+          name: `ROI: ${roiStr} | ${sportCount} Sports`,
+          type: ActivityType.Watching,
+        }],
+      });
+
+      this._logger.debug({ roi: roiStr, sportCount, wins, losses, totalPL: totalPL.toFixed(2) }, 'Presence updated');
+    } catch (err) {
+      this._logger.warn({ err: (err as Error).message }, 'Failed to update Discord presence');
     }
   }
 

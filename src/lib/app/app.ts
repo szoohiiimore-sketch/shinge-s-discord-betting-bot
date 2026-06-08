@@ -30,6 +30,7 @@ import {
   bootstrapIngestion,
   scheduleIngestionJobs,
   SIXTY_MINUTES_MS,
+  THREE_HOURS_MS,
   FOUR_HOURS_MS,
   type TraditionalSportScheduleConfig,
 } from '@/ingestion/bootstrap';
@@ -79,10 +80,46 @@ const TRADITIONAL_SPORT_CONFIGS: readonly TraditionalSportScheduleConfig[] = [
 
   // ── Tier 2: 4-hour polling ─────────────────────────────────────────────────────
   // Slow-moving sports with long event windows
-  { sportKey: 'basketball_nba',           sportGroup: 'Basketball', intervalMs: FOUR_HOURS_MS },
-  { sportKey: 'soccer_epl',               sportGroup: 'Soccer',     intervalMs: FOUR_HOURS_MS },
-  { sportKey: 'soccer_uefa_champs_league', sportGroup: 'Soccer',   intervalMs: FOUR_HOURS_MS },
-  { sportKey: 'americanfootball_ncaaf',   sportGroup: 'Football',   intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'basketball_nba',            sportGroup: 'Basketball', intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'soccer_epl',                sportGroup: 'Soccer',     intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'soccer_uefa_champs_league',  sportGroup: 'Soccer',    intervalMs: FOUR_HOURS_MS },
+  { sportKey: 'americanfootball_ncaaf',    sportGroup: 'Football',   intervalMs: FOUR_HOURS_MS },
+
+  // ── Tier 3: 3-hour polling (mass league expansion from ahhhh.txt) ──────────────
+  { sportKey: 'soccer_brazil_serie_b',         sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_argentina_primera_division', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_australia_aleague',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_austria_bundesliga',     sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_brazil_campeonato',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_belgium_first_div',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_chile_campeonato',       sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_china_superleague',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_denmark_superliga',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_england_league2',        sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_finland_veikkausliiga',  sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_france_ligue_two',       sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_germany_bundesliga2',    sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_germany_bundesliga_women', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_germany_dfb_pokal',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_germany_liga3',          sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_greece_super_league',    sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_italy_serie_b',          sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_japan_j_league',         sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_korea_kleague1',         sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_league_of_ireland',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_mexico_ligamx',          sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_netherlands_eredivisie', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_norway_eliteserien',     sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_poland_ekstraklasa',     sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_portugal_primeira_liga', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_russia_premier_league',  sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_spain_segunda_division', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_saudi_arabia_pro_league', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_spl',                    sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_sweden_allsvenskan',     sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_sweden_superettan',      sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_switzerland_superleague', sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
+  { sportKey: 'soccer_turkey_super_league',    sportGroup: 'Soccer', intervalMs: THREE_HOURS_MS },
 ];
 
 function createDependencies(): Dependencies {

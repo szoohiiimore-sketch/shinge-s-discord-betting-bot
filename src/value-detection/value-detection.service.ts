@@ -7,6 +7,8 @@ const MIN_EDGE_THRESHOLD_PCT = 5.0;
 const MAX_EDGE_THRESHOLD_PCT = 100;
 const MIN_CONSENSUS_BOOKMAKERS = 2;
 const CANDIDATE_BOOKMAKER = 'pinnacle';
+/** Suppress repeated alerts for the same match+outcome within this window. */
+const SUPPRESSION_WINDOW_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 interface SnapshotRow {
   matchId: string;
@@ -189,6 +191,27 @@ export class ValueDetectionService {
             pinnacleOdds,
             consensusOdds,
           });
+          skipped++;
+          continue;
+        }
+
+        // Suppression check: skip if this match+outcome was already alerted within the
+        // suppression window (12 hours). Prevents duplicate Discord notifications when
+        // odds are unchanged across consecutive polling cycles.
+        const recentlyAlerted = await this._prisma.valueOpportunity.findFirst({
+          where: {
+            matchId,
+            outcome,
+            alertedAt: {
+              not: null,
+              gte: new Date(Date.now() - SUPPRESSION_WINDOW_MS),
+            },
+          },
+          select: { id: true },
+        });
+
+        if (recentlyAlerted) {
+          this._decision('SUPPRESSED', { matchId, outcome, reason: 'previously alerted within suppression window' });
           skipped++;
           continue;
         }

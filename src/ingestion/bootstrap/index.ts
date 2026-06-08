@@ -6,6 +6,7 @@ export {
   scheduleIngestionJobs,
   THIRTY_MINUTES_MS,
   SIXTY_MINUTES_MS,
+  THREE_HOURS_MS,
   FOUR_HOURS_MS,
 } from './ingestion-scheduler';
 export type { TraditionalSportScheduleConfig } from './ingestion-scheduler';

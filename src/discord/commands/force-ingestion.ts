@@ -19,10 +19,45 @@ const SPORT_KEY_TO_GROUP: Record<string, string> = {
   'basketball_wnba':         'Basketball',
   'soccer_usa_mls':          'Soccer',
   // Tier 2 (4h)
-  'basketball_nba':          'Basketball',
-  'soccer_epl':              'Soccer',
+  'basketball_nba':           'Basketball',
+  'soccer_epl':               'Soccer',
   'soccer_uefa_champs_league': 'Soccer',
-  'americanfootball_ncaaf':  'Football',
+  'americanfootball_ncaaf':   'Football',
+  // Tier 3 (3h — mass league expansion)
+  'soccer_brazil_serie_b':        'Soccer',
+  'soccer_argentina_primera_division': 'Soccer',
+  'soccer_australia_aleague':     'Soccer',
+  'soccer_austria_bundesliga':    'Soccer',
+  'soccer_brazil_campeonato':     'Soccer',
+  'soccer_belgium_first_div':     'Soccer',
+  'soccer_chile_campeonato':      'Soccer',
+  'soccer_china_superleague':     'Soccer',
+  'soccer_denmark_superliga':     'Soccer',
+  'soccer_england_league2':       'Soccer',
+  'soccer_finland_veikkausliiga': 'Soccer',
+  'soccer_france_ligue_two':      'Soccer',
+  'soccer_germany_bundesliga2':   'Soccer',
+  'soccer_germany_bundesliga_women': 'Soccer',
+  'soccer_germany_dfb_pokal':     'Soccer',
+  'soccer_germany_liga3':         'Soccer',
+  'soccer_greece_super_league':   'Soccer',
+  'soccer_italy_serie_b':         'Soccer',
+  'soccer_japan_j_league':        'Soccer',
+  'soccer_korea_kleague1':        'Soccer',
+  'soccer_league_of_ireland':     'Soccer',
+  'soccer_mexico_ligamx':         'Soccer',
+  'soccer_netherlands_eredivisie':'Soccer',
+  'soccer_norway_eliteserien':    'Soccer',
+  'soccer_poland_ekstraklasa':    'Soccer',
+  'soccer_portugal_primeira_liga':'Soccer',
+  'soccer_russia_premier_league': 'Soccer',
+  'soccer_spain_segunda_division':'Soccer',
+  'soccer_saudi_arabia_pro_league': 'Soccer',
+  'soccer_spl':                   'Soccer',
+  'soccer_sweden_allsvenskan':    'Soccer',
+  'soccer_sweden_superettan':     'Soccer',
+  'soccer_switzerland_superleague': 'Soccer',
+  'soccer_turkey_super_league':   'Soccer',
 };
 
 const ESPORTS_GAMES: Record<string, EsportsVideogame> = {
@@ -121,6 +156,14 @@ export async function executeForceIngestion(
     'Jobs will execute asynchronously. Check `/bot-status` for OddsSnapshot count changes.',
   );
 
+  let content = lines.join('\n');
+
+  // Discord message limit is 2000 characters. If the job list is long (e.g. "all"
+  // sources with 50+ sports), truncate to stay within limit.
+  if (content.length > 1990) {
+    content = content.slice(0, 1990) + '\n\n*(truncated — showing first jobs only)*';
+  }
+
   logger.info({
     command: 'force-ingestion',
     source: options.source,
@@ -129,5 +172,5 @@ export async function executeForceIngestion(
     durationMs,
   }, 'Command execution complete');
 
-  return { content: lines.join('\n') };
+  return { content };
 }

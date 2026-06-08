@@ -32,6 +32,7 @@ export interface TraditionalSportScheduleConfig {
 /** Polling interval constants for use in caller-supplied sport configurations. */
 export const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 export const SIXTY_MINUTES_MS = 60 * 60 * 1000;
+export const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 export const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
 
 /**

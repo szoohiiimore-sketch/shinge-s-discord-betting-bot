@@ -66,5 +66,9 @@ export async function getBestSports(
     );
   }
 
-  return { content: lines.join('\n') };
+  const content = lines.join('\n');
+  if (content.length > 1990) {
+    return { content: content.slice(0, 1960) + '\n\n*(truncated — too many sports)*' };
+  }
+  return { content };
 }

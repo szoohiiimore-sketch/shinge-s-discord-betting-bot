@@ -46,6 +46,14 @@ function displayEdge(raw: unknown): string {
   return `+${n.toFixed(1)}%`;
 }
 
+function displayProbability(odds: unknown): string {
+  const n = typeof odds === 'object' && odds !== null && 'toNumber' in odds
+    ? (odds as { toNumber(): number }).toNumber()
+    : Number(odds);
+  if (n <= 0) return '0.0%';
+  return `${((1 / n) * 100).toFixed(1)}%`;
+}
+
 function displayTime(d: Date): string {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
@@ -72,14 +80,29 @@ function formatAlert(opp: {
   bookmakerOdds: unknown;
   fairOdds: unknown;
   edgePercentage: unknown;
+  consensusProbability: unknown;
   capturedAt: Date;
   match: {
+    startTime: Date;
+    league?: { name: string } | null;
     homeTeam: { name: string };
     awayTeam: { name: string };
   };
 }): string {
+  const localStart = new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'Europe/Budapest', hour12: false,
+  }).format(opp.match.startTime).replace(',', '');
+
   const lines = [
     '🎯 **VALUE BET DETECTED**',
+    '',
+    opp.match.league?.name ? `**League:** ${opp.match.league.name}` : undefined,
+    '',
+    `**Starts:**`,
+    `${displayTime(opp.match.startTime)}`,
+    `(${localStart} Budapest)`,
     '',
     `**Sport:** ${displaySport(opp.sport)}`,
     `**Match:** ${opp.match.homeTeam.name} vs ${opp.match.awayTeam.name}`,
@@ -87,12 +110,15 @@ function formatAlert(opp: {
     `**Outcome:** ${opp.outcome}`,
     `**Bookmaker:** ${displayBookmaker(opp.bookmaker)}`,
     '',
+    `**Market Probability:** ${displayProbability(opp.bookmakerOdds)}`,
+    `**Consensus Probability:** ${displayProbability(opp.fairOdds)}`,
     `**Odds:** ${displayOdds(opp.bookmakerOdds)}`,
     `**Fair Odds:** ${displayOdds(opp.fairOdds)}`,
     `**Edge:** ${displayEdge(opp.edgePercentage)}`,
     '',
     `**Captured:** ${displayTime(opp.capturedAt)}`,
-  ];
+  ].filter(Boolean);
+
   return lines.join('\n');
 }
 
@@ -134,6 +160,7 @@ export class DiscordNotificationService {
           include: {
             homeTeam: { select: { name: true } },
             awayTeam: { select: { name: true } },
+            league: { select: { name: true } },
           },
         },
       },

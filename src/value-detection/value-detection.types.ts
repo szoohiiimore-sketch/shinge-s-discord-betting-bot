@@ -3,7 +3,8 @@ export type ValueDetectionDecision =
   | 'REJECTED'
   | 'INSUFFICIENT_MARKET_DATA'
   | 'INVALID_DATA'
-  | 'ODDS_FILTERED';
+  | 'ODDS_FILTERED'
+  | 'SUPPRESSED';
 
 export interface ValueDetectionResult {
   readonly matchesAnalyzed: number;
