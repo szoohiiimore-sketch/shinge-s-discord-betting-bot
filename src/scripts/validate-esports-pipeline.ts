@@ -353,7 +353,7 @@ async function main(): Promise<void> {
     // Expected: away team — pinnacle 1.35 vs fair ~1.564 → edge ~-13.7% → not stored (negative)
 
     const valueOpportunityRepo = new ValueOpportunityRepository(prisma, logger);
-    const valueDetectionSvc = new ValueDetectionService(prisma, valueOpportunityRepo, logger);
+    const valueDetectionSvc = new ValueDetectionService(prisma, valueOpportunityRepo, 3.0, logger);
 
     // First run
     const detection1 = await valueDetectionSvc.detectForMatchExternalIds([phase6Match.externalId]);

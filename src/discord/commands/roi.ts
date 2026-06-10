@@ -33,8 +33,8 @@ export async function getRoiStats(
 
   const cutoff = periodCutoff(period);
   const where = cutoff
-    ? { settledAt: { not: null, gte: cutoff } }
-    : { settledAt: { not: null } };
+    ? { settledAt: { not: null, gte: cutoff }, match: { sport: { category: 'TRADITIONAL' as const } } }
+    : { settledAt: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } };
 
   const settled = await prisma.valueOpportunity.findMany({
     where,

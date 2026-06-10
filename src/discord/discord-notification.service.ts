@@ -154,7 +154,7 @@ export class DiscordNotificationService {
 
   async notifyPendingOpportunities(): Promise<NotifyResult> {
     const pending = await this._prisma.valueOpportunity.findMany({
-      where: { alertedAt: null },
+      where: { alertedAt: null, match: { sport: { category: 'TRADITIONAL' as const } } },
       include: {
         match: {
           include: {
@@ -232,6 +232,7 @@ export class DiscordNotificationService {
       where: {
         settledAt: { gte: since },
         betResult: { not: null },
+        match: { sport: { category: 'TRADITIONAL' as const } },
       },
       select: {
         betResult: true,

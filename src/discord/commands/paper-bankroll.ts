@@ -17,7 +17,7 @@ export async function getPaperBankroll(
   logger.info({ command: 'paper-bankroll' }, 'Command execution started');
 
   const settled = await prisma.valueOpportunity.findMany({
-    where: { settledAt: { not: null } },
+    where: { settledAt: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } },
     select: { profitLossUnits: true },
   });
 

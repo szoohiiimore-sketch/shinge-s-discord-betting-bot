@@ -1,7 +1,7 @@
 import type { Queue } from 'bullmq';
 import type { Logger } from '@/lib/logger';
 import type { EsportsVideogame } from '@/ingestion/contracts';
-import type { SyncTraditionalSportJobData, SyncEsportsGameJobData, SettleMatchesJobData, DailySummaryJobData } from '@/ingestion/contracts';
+import type { SyncTraditionalSportJobData, SettleMatchesJobData, DailySummaryJobData } from '@/ingestion/contracts';
 import { MATCH_FETCH_JOB_NAMES } from '@/ingestion/queues';
 
 /** All V1 esports videogames — exhaustive by the EsportsVideogame type definition. */
@@ -92,23 +92,16 @@ export async function scheduleIngestionJobs(
     schedLogger.debug({ sportKey, intervalMs }, 'Registered sync-traditional-sport');
   }
 
-  // ── Esports videogames (12:00 and 17:00 Europe/Budapest) ──────────
-  // Two runs per day at fixed Hungarian local times. The tz option handles
-  // CEST/CET transitions automatically. All 4 games trigger OddsPapi calls.
-  // This yields 4 games × 2 runs/day = 8 OddsPapi calls/day ≈ 240/month,
-  // matching the OddsPapi free-tier budget.
-  for (const videogame of ESPORTS_VIDEOGAMES) {
-    const data: SyncEsportsGameJobData = { videogame };
-    await matchFetchQueue.add(
-      MATCH_FETCH_JOB_NAMES.SYNC_ESPORTS_GAME,
-      data,
-      {
-        repeat: { pattern: '0 12,17 * * *', tz: 'Europe/Budapest' },
-        jobId: `repeat:sync-esports-game:${videogame}`,
-      },
-    );
-    schedLogger.debug({ videogame }, 'Registered sync-esports-game (12:00 + 17:00 Budapest)');
-  }
+  // ── Esports videogames — DISABLED (V1) ────────────────────────────
+  // Esports ingestion is disabled pending resolution of the OddsPapi fixture
+  // correlation collision bug (see ESPORTS-DISABLE-IMPACT-AUDIT.md).
+  // ESPORTS_VIDEOGAMES loop intentionally omitted. To re-enable, restore:
+  //   for (const videogame of ESPORTS_VIDEOGAMES) {
+  //     await matchFetchQueue.add(MATCH_FETCH_JOB_NAMES.SYNC_ESPORTS_GAME, { videogame },
+  //       { repeat: { pattern: '0 12,17 * * *', tz: 'Europe/Budapest' },
+  //         jobId: `repeat:sync-esports-game:${videogame}` });
+  //   }
+  schedLogger.info('Esports ingestion disabled — no sync-esports-game jobs registered');
 
   // ── Settlement (every 4 hours) ─────────────────────────────────────
   await matchFetchQueue.add(

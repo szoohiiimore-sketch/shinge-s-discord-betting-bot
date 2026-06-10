@@ -66,17 +66,34 @@ const TRADITIONAL_SPORT_CONFIGS: readonly TraditionalSportScheduleConfig[] = [
   { sportKey: 'icehockey_nhl',           sportGroup: 'Ice Hockey', intervalMs: SIXTY_MINUTES_MS },
   { sportKey: 'baseball_mlb',            sportGroup: 'Baseball',   intervalMs: SIXTY_MINUTES_MS },
   { sportKey: 'basketball_wnba',         sportGroup: 'Basketball', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'basketball_euroleague',   sportGroup: 'Basketball', intervalMs: SIXTY_MINUTES_MS },
   { sportKey: 'soccer_usa_mls',          sportGroup: 'Soccer',     intervalMs: SIXTY_MINUTES_MS },
 
   // ── Tier 1: Tennis tournaments (60-minute polling) ──────────────────────────────
-  { sportKey: 'tennis_atp_wimbledon',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_atp_us_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_atp_indian_wells',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_atp_miami_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_wta_wimbledon',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_wta_us_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_wta_indian_wells',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
-  { sportKey: 'tennis_wta_miami_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  // ATP Grand Slams
+  { sportKey: 'tennis_atp_aus_open_singles', sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_french_open',      sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_wimbledon',        sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_us_open',          sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  // ATP Masters 1000
+  { sportKey: 'tennis_atp_indian_wells',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_miami_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_madrid_open',      sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_italian_open',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_canadian_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_atp_cincinnati_open',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  // WTA Grand Slams
+  { sportKey: 'tennis_wta_aus_open_singles', sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_french_open',      sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_wimbledon',        sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_us_open',          sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  // WTA 1000
+  { sportKey: 'tennis_wta_indian_wells',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_miami_open',       sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_madrid_open',      sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_italian_open',     sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_canadian_open',    sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
+  { sportKey: 'tennis_wta_cincinnati_open',  sportGroup: 'Tennis', intervalMs: SIXTY_MINUTES_MS },
 
   // ── Tier 2: 4-hour polling ─────────────────────────────────────────────────────
   // Slow-moving sports with long event windows
@@ -217,6 +234,7 @@ export class Application {
         this._deps.prisma!,
         this._deps.redis!,
         this._logger,
+        TRADITIONAL_SPORT_CONFIGS.map(c => c.sportKey),
       );
       const { matchFetchProcessor, oddsFetchProcessor } = bootstrapIngestion(ingestionDeps, this._logger);
       this.setWorkerProcessors({ matchFetch: matchFetchProcessor, oddsFetch: oddsFetchProcessor });

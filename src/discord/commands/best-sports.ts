@@ -25,7 +25,7 @@ export async function getBestSports(
   logger.info({ command: 'best-sports' }, 'Command execution started');
 
   const settled = await prisma.valueOpportunity.findMany({
-    where: { settledAt: { not: null } },
+    where: { settledAt: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } },
     select: { sport: true, betResult: true, profitLossUnits: true },
   });
 

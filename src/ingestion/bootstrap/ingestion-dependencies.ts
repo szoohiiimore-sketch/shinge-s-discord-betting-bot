@@ -53,6 +53,7 @@ export interface IngestionDependencies {
  * @param prisma - PrismaClient instance
  * @param redis - Redis instance (for BullMQ)
  * @param logger - Root logger instance
+ * @param traditionalSportKeys - All traditional sport keys eligible for settlement result refresh
  * @returns All ingestion worker instances ready for queue registration
  */
 export function createIngestionDependencies(
@@ -60,6 +61,7 @@ export function createIngestionDependencies(
   prisma: PrismaClient,
   redis: Redis,
   logger: Logger,
+  traditionalSportKeys: readonly string[],
 ): IngestionDependencies {
   const depLogger = logger.child({ module: 'ingestion-bootstrap' });
 
@@ -163,7 +165,7 @@ export function createIngestionDependencies(
 
   // ── Settlement ─────────────────────────────────────────────────────
   const settlementService = new SettlementService(prisma, oddsApiClient, pandascoreClient, logger);
-  const settlementWorker = new SettlementWorker(settlementService, discordNotificationService, logger);
+  const settlementWorker = new SettlementWorker(settlementService, discordNotificationService, logger, traditionalSportKeys);
 
   // ── Daily summary ──────────────────────────────────────────────────
   const dailySummaryWorker = new DailySummaryWorker(discordNotificationService, logger);

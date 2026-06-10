@@ -253,7 +253,7 @@ export class DiscordBotService {
 
     try {
       const settled = await this._prisma.valueOpportunity.findMany({
-        where: { betResult: { not: null } },
+        where: { betResult: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } },
         select: { betResult: true, profitLossUnits: true },
       });
 
