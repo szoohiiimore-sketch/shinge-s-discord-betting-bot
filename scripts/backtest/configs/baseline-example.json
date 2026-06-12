@@ -1,0 +1,19 @@
+{
+  "name": "baseline-production-config",
+  "sportKeys": ["soccer_sweden_superettan", "soccer_brazil_serie_b", "soccer_spain_segunda_division"],
+  "periodStart": "2025-08-02T00:00:00Z",
+  "periodEnd": "2026-02-01T00:00:00Z",
+  "cadenceMode": "live-cadence",
+  "liveCadenceDefaultMinutes": 180,
+  "liveCadenceMinutesBySport": {},
+  "detector": {
+    "referenceBookmaker": "pinnacle",
+    "shadowEdgeThresholdPct": 2.0,
+    "productionEdgeThresholdPct": 3.0,
+    "maxEdgeThresholdPct": 100,
+    "maxCandidateOdds": 3.0,
+    "minReferenceOverround": 0.99,
+    "maxReferenceOverround": 1.15,
+    "excludeExchanges": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "planKey": "universe-soccer1-v1",
+  "sportKeys": ["soccer_usa_mls", "soccer_japan_j_league", "soccer_korea_kleague1", "soccer_argentina_primera_division", "soccer_brazil_campeonato"],
+  "periodStart": "2026-05-05T00:00:00Z",
+  "periodEnd": "2026-06-05T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 8000,
+  "minRemainingCredits": 50000,
+  "throttleMs": 250
+}

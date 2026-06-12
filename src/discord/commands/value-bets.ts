@@ -32,7 +32,7 @@ export async function getValueBets(
 
   const { status = 'all', sport, limit = 10 } = opts;
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { isShadow: false };
   if (status === 'open') where['alertedAt'] = null;
   else if (status === 'alerted') where['alertedAt'] = { not: null };
   if (sport) where['sport'] = sport;

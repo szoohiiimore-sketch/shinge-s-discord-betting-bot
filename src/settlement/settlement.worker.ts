@@ -26,7 +26,7 @@ export class SettlementWorker {
     this._logger.info('Settlement job started');
 
     let traditionalNewlySettled: readonly SettledOpportunityNotification[] = [];
-    let esportsNewlySettled: readonly SettledOpportunityNotification[] = [];
+    const esportsNewlySettled: readonly SettledOpportunityNotification[] = [];
 
     try {
       const traditionalResult = await this._service.settleTraditional(this._traditionalSportKeys);

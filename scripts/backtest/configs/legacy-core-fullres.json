@@ -1,0 +1,24 @@
+{
+    "periodStart":  "2026-04-21T00:00:00Z",
+    "model":  "legacy",
+    "periodEnd":  "2026-06-07T00:00:00Z",
+    "liveCadenceDefaultMinutes":  180,
+    "name":  "legacy-core-fullres",
+    "detector":  {
+                     "excludeExchanges":  true,
+                     "referenceBookmaker":  "pinnacle",
+                     "minReferenceOverround":  0.99,
+                     "maxEdgeThresholdPct":  100,
+                     "maxCandidateOdds":  3,
+                     "shadowEdgeThresholdPct":  2,
+                     "maxReferenceOverround":  1.15,
+                     "productionEdgeThresholdPct":  3
+                 },
+    "cadenceMode":  "full-resolution",
+    "sportKeys":  [
+                      "soccer_sweden_superettan",
+                      "soccer_brazil_serie_b",
+                      "soccer_spain_segunda_division",
+                      "basketball_wnba"
+                  ]
+}

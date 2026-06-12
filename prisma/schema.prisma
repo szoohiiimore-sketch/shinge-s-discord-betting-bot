@@ -113,6 +113,16 @@ enum BetResult {
   PUSH
 }
 
+/// Which detection model produced a ValueOpportunity. Both run live in parallel
+/// (dual-model A/B); attribution survives detection → alerting → settlement →
+/// CLV → reporting. See docs/audits/DUAL_MODEL_ALERTING_IMPLEMENTATION.md.
+enum DetectionModel {
+  LEGACY
+  PINNACLE_LED
+  LOW_ODDS_LEGACY
+  LOW_ODDS_PINNACLE_LED
+}
+
 // ──────────────────────────────────────────────
 // MODELS
 // ──────────────────────────────────────────────
@@ -376,6 +386,26 @@ model ValueOpportunity {
   settledAt            DateTime? @map("settled_at")
   betResult            BetResult? @map("bet_result")
   profitLossUnits      Decimal?  @map("profit_loss_units")
+  /// Raw Pinnacle price for this outcome in the last pre-kickoff snapshot batch.
+  closingPinnacleOdds  Decimal?  @map("closing_pinnacle_odds")
+  /// CLV% = (alert odds / de-vigged Pinnacle closing fair odds − 1) × 100. Set at settlement.
+  clvPercentage        Decimal?  @map("clv_percentage")
+  clvPositive          Boolean?  @map("clv_positive")
+  /// When true, edge was in the shadow tier (>= 2% and < 3%). Shadow rows are stored for
+  /// CLV and threshold-calibration analysis but never send Discord alerts and are excluded
+  /// from all production ROI metrics. False (default) = production opportunity (edge >= 3%).
+  isShadow             Boolean   @default(false) @map("is_shadow")
+  /// Pinnacle price movement % for the alerted outcome over the trailing window at capture:
+  /// (latest price / oldest price in window − 1) × 100. Negative = price shortened (market
+  /// moved TOWARD the outcome). Null when no earlier Pinnacle snapshot exists in the window.
+  /// Analytics only — never used by detection, alerting, or settlement.
+  pinnacleMove1h       Decimal?  @map("pinnacle_move_1h")
+  pinnacleMove6h       Decimal?  @map("pinnacle_move_6h")
+  pinnacleMove24h      Decimal?  @map("pinnacle_move_24h")
+  /// Producing model. Backfilled: legacy-era rows (candidate = pinnacle) are LEGACY.
+  model                DetectionModel @default(PINNACLE_LED) @map("model")
+  /// Legacy-family confidence grade (A/B/C) — ranking/reporting only, never suppression.
+  confidence           String?   @map("confidence")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -388,6 +418,150 @@ model ValueOpportunity {
   @@index([alertedAt])
   @@index([settledAt])
   @@index([betResult])
+  @@index([isShadow])
+  @@index([model])
   @@index([createdAt])
   @@map("value_opportunities")
+}
+
+// ──────────────────────────────────────────────
+// HISTORICAL BACKTESTING ENGINE — segregated research storage.
+// These tables are written and read ONLY by the offline engine
+// (src/backtest + scripts/backtest). They share no rows, foreign keys,
+// or indexes with the live OddsSnapshot / ValueOpportunity pipeline.
+// See docs/audits/HISTORICAL_BACKTESTING_ENGINE_DESIGN.md §3.
+// ──────────────────────────────────────────────
+
+/// An event from The Odds API historical feed. Deliberately NOT joined to the
+/// live Match/Team tables — historical identity stays in the API's own id space
+/// so backfills can never pollute live reference data.
+model HistoricalEvent {
+  id           String   @id @map("id") // The Odds API event id
+  sportKey     String   @map("sport_key")
+  commenceTime DateTime @map("commence_time")
+  homeTeam     String   @map("home_team")
+  awayTeam     String   @map("away_team")
+  /// Winning H2H outcome name, inferred from stored in-play prices (median price
+  /// collapsed to <= WIN threshold late in the match). Null = unresolved.
+  resultOutcome    String?   @map("result_outcome")
+  /// How the result was determined (e.g. INPLAY_PRICE). Null = unresolved.
+  resultMethod     String?   @map("result_method")
+  /// snapshot_at of the in-play batch the inference is based on.
+  resultEvidenceAt DateTime? @map("result_evidence_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  snapshots HistoricalOddsSnapshot[] @relation("HistoricalEventSnapshots")
+
+  @@index([sportKey, commenceTime])
+  @@map("historical_events")
+}
+
+/// Append-only historical odds rows backfilled from /v4/historical. One row per
+/// (event, bookmaker, market, outcome, snapshot_at). Never read by live code.
+model HistoricalOddsSnapshot {
+  id         BigInt   @id @default(autoincrement()) @map("id")
+  eventId    String   @map("event_id")
+  sportKey   String   @map("sport_key")
+  bookmaker  String   @map("bookmaker")
+  market     String   @default("h2h") @map("market")
+  outcome    String   @map("outcome")
+  price      Decimal  @map("price")
+  snapshotAt DateTime @map("snapshot_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  event HistoricalEvent @relation("HistoricalEventSnapshots", fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, bookmaker, market, outcome, snapshotAt])
+  @@index([sportKey, snapshotAt])
+  @@index([eventId, snapshotAt])
+  @@map("historical_odds_snapshots")
+}
+
+/// Resumable backfill progress per (sport, plan). Idempotent re-runs: inserts
+/// use skipDuplicates against the snapshot unique key; the cursor only avoids
+/// re-spending credits on already-fetched timestamps.
+model HistoricalIngestionCursor {
+  id             String    @id @map("id") // `${sportKey}|${planKey}`
+  sportKey       String    @map("sport_key")
+  planKey        String    @map("plan_key")
+  lastTimestamp  DateTime? @map("last_timestamp")
+  requestsUsed   Int       @default(0) @map("requests_used")
+  creditsUsed    Int       @default(0) @map("credits_used")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("historical_ingestion_cursors")
+}
+
+/// One backtest run = (config JSONB, period, cadence mode, code version).
+/// Runs are cheap to create and drop; deleting a run cascades its opportunities.
+model BacktestRun {
+  id          String   @id @default(uuid()) @map("id") @db.Uuid
+  name        String   @map("name")
+  /// Full BacktestRunConfig as JSON — frozen before replay starts.
+  config      Json     @map("config")
+  /// git SHA of the code that produced the run (replay-parity guard).
+  codeVersion String   @map("code_version")
+  /// 'live-cadence' (predicts production) | 'full-resolution' (measures ceiling).
+  cadenceMode String   @map("cadence_mode")
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  /// CREATED → REPLAYED → SCORED
+  status      String   @default("CREATED") @map("status")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  opportunities BacktestOpportunity[] @relation("BacktestRunOpportunities")
+
+  @@map("backtest_runs")
+}
+
+/// Backtest detections + ML feature store. Feature columns are written by the
+/// replay engine at detection time (same pure functions as live — no
+/// training/serving skew); label columns (clv_*, bet_result, pl_units) are
+/// written ONLY by the scoring layer after replay completes.
+model BacktestOpportunity {
+  id                   BigInt   @id @default(autoincrement()) @map("id")
+  runId                String   @map("run_id") @db.Uuid
+  eventId              String   @map("event_id")
+  sportKey             String   @map("sport_key")
+  bookmaker            String   @map("bookmaker")
+  outcome              String   @map("outcome")
+  bookmakerOdds        Decimal  @map("bookmaker_odds")
+  fairOdds             Decimal  @map("fair_odds")
+  edgePercentage       Decimal  @map("edge_percentage")
+  consensusProbability Decimal  @map("consensus_probability")
+  isShadow             Boolean  @map("is_shadow")
+  /// The replay cursor timestamp at which the candidate was detected.
+  detectedAt           DateTime @map("detected_at")
+  commenceTime         DateTime @map("commence_time")
+
+  // ── Feature columns (replay-written) ──
+  referenceOverround   Decimal  @map("reference_overround")
+  bookmakerFamily      String   @map("bookmaker_family")
+  minutesToKickoff     Int      @map("minutes_to_kickoff")
+  pinnacleMove1h       Decimal? @map("pinnacle_move_1h")
+  pinnacleMove6h       Decimal? @map("pinnacle_move_6h")
+  pinnacleMove24h      Decimal? @map("pinnacle_move_24h")
+  /// % gap between this candidate's odds and the second-best non-exchange odds
+  /// for the same outcome in the batch. Large gap = lone-outlier (ghost-price) signal.
+  priceGapPct          Decimal? @map("price_gap_pct")
+  /// Distinct non-exchange bookmaker families >= shadow threshold for the same
+  /// outcome in the same batch (corroboration k at detection time).
+  corroborationK       Int      @map("corroboration_k")
+
+  // ── Label columns (scorer-written only) ──
+  closingPinnacleOdds  Decimal? @map("closing_pinnacle_odds")
+  closingFairOdds      Decimal? @map("closing_fair_odds")
+  clvPercentage        Decimal? @map("clv_percentage")
+  clvPositive          Boolean? @map("clv_positive")
+  betResult            String?  @map("bet_result")
+  profitLossUnits      Decimal? @map("profit_loss_units")
+
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  run BacktestRun @relation("BacktestRunOpportunities", fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([runId, eventId])
+  @@index([runId, isShadow])
+  @@map("backtest_opportunities")
 }

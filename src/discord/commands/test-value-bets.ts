@@ -96,6 +96,7 @@ export async function getTopValueBets(
   logger.info({ command: 'test-value-bets', dataSource: 'PostgreSQL (ValueOpportunity table)' }, 'Command execution started');
 
   const opportunities = await prisma.valueOpportunity.findMany({
+    where: { isShadow: false },
     orderBy: { edgePercentage: 'desc' },
     take: 5,
     include: {

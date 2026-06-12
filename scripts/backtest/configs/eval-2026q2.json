@@ -1,0 +1,12 @@
+{
+  "planKey": "eval-2026q2-targeted-v1",
+  "sportKeys": ["soccer_sweden_superettan", "soccer_brazil_serie_b", "soccer_spain_segunda_division", "basketball_wnba"],
+  "periodStart": "2026-04-20T00:00:00Z",
+  "periodEnd": "2026-06-07T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 16000,
+  "minRemainingCredits": 72000,
+  "throttleMs": 250
+}

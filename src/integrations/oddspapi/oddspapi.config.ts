@@ -11,8 +11,8 @@ export const ODDSPAPI_DEFAULTS = {
   QUOTA_SOFT_LIMIT: 9_000,
   QUOTA_HARD_LIMIT: 10_000,
   COOLDOWN_MS: 4 * 60 * 60 * 1000,
-  // Pinnacle is the candidate bookmaker (value bet target).
-  // bet365 and unibet are the consensus bookmakers (market average).
-  // ValueDetectionService requires MIN_CONSENSUS_BOOKMAKERS=2 non-Pinnacle bookmakers.
+  // Pinnacle is the sharp reference book (de-vigged fair price source).
+  // bet365 and unibet are soft candidate bookmakers (value bet targets).
+  // (Esports ingestion is disabled in V1 — see ESPORTS-DISABLE-IMPACT-AUDIT.md.)
   BOOKMAKERS: ['pinnacle', 'bet365', 'unibet'] as readonly string[],
 } as const;

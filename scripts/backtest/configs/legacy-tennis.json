@@ -1,0 +1,21 @@
+{
+    "periodStart":  "2026-05-25T00:00:00Z",
+    "model":  "legacy",
+    "periodEnd":  "2026-06-07T00:00:00Z",
+    "liveCadenceDefaultMinutes":  60,
+    "name":  "legacy-tennis",
+    "detector":  {
+                     "excludeExchanges":  true,
+                     "referenceBookmaker":  "pinnacle",
+                     "minReferenceOverround":  0.99,
+                     "maxEdgeThresholdPct":  100,
+                     "maxCandidateOdds":  3,
+                     "shadowEdgeThresholdPct":  2,
+                     "maxReferenceOverround":  1.15,
+                     "productionEdgeThresholdPct":  3
+                 },
+    "cadenceMode":  "live-cadence",
+    "sportKeys":  [
+                      "tennis_atp_french_open"
+                  ]
+}

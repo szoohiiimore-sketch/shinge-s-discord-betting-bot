@@ -29,6 +29,12 @@ export class ValueOpportunityRepository {
           consensusProbability: i.consensusProbability,
           consensusBookmakers: i.consensusBookmakers,
           capturedAt: i.capturedAt,
+          isShadow: i.isShadow,
+          pinnacleMove1h: i.pinnacleMove1h,
+          pinnacleMove6h: i.pinnacleMove6h,
+          pinnacleMove24h: i.pinnacleMove24h,
+          model: i.model,
+          confidence: i.confidence ?? null,
         })),
         skipDuplicates: true,
       });

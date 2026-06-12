@@ -1,0 +1,31 @@
+{
+    "periodEnd":  "2026-06-07T00:00:00Z",
+    "periodStart":  "2026-05-01T00:00:00Z",
+    "detector":  {
+                     "excludeExchanges":  true,
+                     "referenceBookmaker":  "pinnacle",
+                     "minReferenceOverround":  0.99,
+                     "maxEdgeThresholdPct":  100,
+                     "maxCandidateOdds":  3,
+                     "shadowEdgeThresholdPct":  2,
+                     "maxReferenceOverround":  1.15,
+                     "productionEdgeThresholdPct":  3
+                 },
+    "cadenceMode":  "full-resolution",
+    "liveCadenceDefaultMinutes":  60,
+    "name":  "legacy-lowedge-nordic",
+    "model":  "legacy",
+    "sportKeys":  [
+                      "soccer_sweden_allsvenskan",
+                      "soccer_norway_eliteserien",
+                      "soccer_finland_veikkausliiga"
+                  ],
+    "legacy":  {
+                   "suppressionWindowMs":  43200000,
+                   "maxEdgeThresholdPct":  100,
+                   "candidateBookmaker":  "pinnacle",
+                   "maxCandidateOdds":  3,
+                   "minEdgeThresholdPct":  3,
+                   "minConsensusBookmakers":  2
+               }
+}

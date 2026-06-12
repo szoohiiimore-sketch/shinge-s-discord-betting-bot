@@ -1,0 +1,18 @@
+{
+  "name": "universe-soccer-live-cadence",
+  "sportKeys": ["soccer_usa_mls", "soccer_japan_j_league", "soccer_korea_kleague1", "soccer_argentina_primera_division", "soccer_brazil_campeonato", "soccer_china_superleague", "soccer_chile_campeonato", "soccer_league_of_ireland", "soccer_conmebol_copa_libertadores"],
+  "periodStart": "2026-05-05T00:00:00Z",
+  "periodEnd": "2026-06-05T00:00:00Z",
+  "cadenceMode": "live-cadence",
+  "liveCadenceDefaultMinutes": 180,
+  "detector": {
+    "referenceBookmaker": "pinnacle",
+    "shadowEdgeThresholdPct": 2.0,
+    "productionEdgeThresholdPct": 3.0,
+    "maxEdgeThresholdPct": 100,
+    "maxCandidateOdds": 3.0,
+    "minReferenceOverround": 0.99,
+    "maxReferenceOverround": 1.15,
+    "excludeExchanges": true
+  }
+}

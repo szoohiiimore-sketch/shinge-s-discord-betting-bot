@@ -3,10 +3,8 @@ import { ExternalApiError, RateLimitError, AuthenticationError } from '@/lib/err
 import type {
   GetSportsResponse,
   GetOddsResponse,
-  GetHistoricalOddsResponse,
   GetScoresResponse,
   OddsRequestParams,
-  HistoricalOddsRequestParams,
 } from './types';
 import type { OddsApiClientConfig } from './the-odds-api.config';
 import type { QuotaState } from './quota.types';
@@ -24,12 +22,6 @@ export interface OddsApiClient {
 
   /** Fetches odds for a specific sport with optional query parameters. */
   getOdds(sportKey: string, params?: OddsRequestParams): Promise<GetOddsResponse>;
-
-  /** Fetches historical odds snapshots for a sport. */
-  getHistoricalOdds(
-    sportKey: string,
-    params?: HistoricalOddsRequestParams,
-  ): Promise<GetHistoricalOddsResponse>;
 
   /** Fetches recent completed match scores for a sport. daysFrom: 1–3. */
   getScores(sportKey: string, daysFrom?: number): Promise<GetScoresResponse>;
@@ -67,15 +59,6 @@ export class DefaultOddsApiClient implements OddsApiClient {
     const searchParams = this.buildSearchParams(params);
     const response = await this.request(`/sports/${sportKey}/odds`, searchParams);
     return response as GetOddsResponse;
-  }
-
-  async getHistoricalOdds(
-    sportKey: string,
-    params?: HistoricalOddsRequestParams,
-  ): Promise<GetHistoricalOddsResponse> {
-    const searchParams = this.buildSearchParams(params);
-    const response = await this.request(`/sports/${sportKey}/odds-history`, searchParams);
-    return response as GetHistoricalOddsResponse;
   }
 
   async getScores(sportKey: string, daysFrom: number = 1): Promise<GetScoresResponse> {

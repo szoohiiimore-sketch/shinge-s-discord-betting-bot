@@ -20,6 +20,17 @@ function toNumber(v: unknown): number {
   return NaN;
 }
 
+/** Pinnacle's last pre-kickoff price for one outcome: raw, and de-vigged fair. */
+interface ClosingQuote {
+  readonly raw: number;
+  readonly fair: number;
+}
+
+const CLOSING_REFERENCE_BOOKMAKER = 'pinnacle';
+/** Same overround sanity bounds as value detection — guards incomplete/anomalous markets. */
+const MIN_CLOSING_OVERROUND = 0.99;
+const MAX_CLOSING_OVERROUND = 1.15;
+
 function calcProfitLoss(outcome: BetOutcome, odds: number): number {
   if (outcome === 'WIN') return odds - 1;
   if (outcome === 'LOSS') return -1;
@@ -198,6 +209,10 @@ export class SettlementService {
   /**
    * Settles all unsettled ValueOpportunities for matches that are already FINISHED.
    * Idempotent — opportunities with settledAt already set are skipped.
+   *
+   * At settlement time, Closing Line Value is computed per opportunity: the alert
+   * odds are compared against the de-vigged Pinnacle price from the last pre-kickoff
+   * snapshot batch. Opportunities without a usable Pinnacle close keep null CLV.
    */
   private async _settleUnsettled(): Promise<Omit<SettlementResult, 'matchesUpdated' | 'durationMs'>> {
     const unsettled = await this._prisma.valueOpportunity.findMany({
@@ -207,6 +222,7 @@ export class SettlementService {
       },
       select: {
         id: true,
+        matchId: true,
         sport: true,
         outcome: true,
         bookmakerOdds: true,
@@ -214,6 +230,7 @@ export class SettlementService {
         match: {
           select: {
             result: true,
+            startTime: true,
             homeTeam: { select: { name: true } },
             awayTeam: { select: { name: true } },
           },
@@ -224,8 +241,10 @@ export class SettlementService {
     let wins = 0;
     let losses = 0;
     let pushes = 0;
-    let unresolvable = 0;
+    const unresolvable = 0;
     const newlySettled: SettledOpportunityNotification[] = [];
+    // One closing-quote lookup per match, shared by all its opportunities.
+    const closingCache = new Map<string, ReadonlyMap<string, ClosingQuote>>();
 
     for (const opp of unsettled) {
       const matchResult = opp.match.result as 'HOME_WIN' | 'AWAY_WIN' | 'DRAW';
@@ -236,8 +255,31 @@ export class SettlementService {
         matchResult,
       );
 
-      const profitLossUnits = calcProfitLoss(betOutcome, toNumber(opp.bookmakerOdds));
+      const alertOdds = toNumber(opp.bookmakerOdds);
+      const profitLossUnits = calcProfitLoss(betOutcome, alertOdds);
       const settledAt = new Date();
+
+      // Closing Line Value vs the de-vigged Pinnacle close.
+      let quotes = closingCache.get(opp.matchId);
+      if (!quotes) {
+        quotes = await this._closingPinnacleQuotes(opp.matchId, opp.match.startTime);
+        closingCache.set(opp.matchId, quotes);
+      }
+      const closing = quotes.get(opp.outcome);
+      let clvData: { closingPinnacleOdds: number; clvPercentage: number; clvPositive: boolean } | undefined;
+      if (closing) {
+        const clvPercentage = (alertOdds / closing.fair - 1) * 100;
+        clvData = {
+          closingPinnacleOdds: closing.raw,
+          clvPercentage,
+          clvPositive: clvPercentage > 0,
+        };
+      } else {
+        this._logger.debug(
+          { opportunityId: opp.id, outcome: opp.outcome },
+          'No usable Pinnacle closing quote — CLV left null',
+        );
+      }
 
       await this._prisma.valueOpportunity.update({
         where: { id: opp.id },
@@ -245,6 +287,7 @@ export class SettlementService {
           settledAt,
           betResult: betOutcome,
           profitLossUnits,
+          ...(clvData ?? {}),
         },
       });
 
@@ -273,5 +316,64 @@ export class SettlementService {
       unresolvable,
       newlySettled,
     };
+  }
+
+  /**
+   * Loads Pinnacle's last pre-kickoff H2H snapshot batch for a match and returns
+   * per-outcome closing quotes (raw price + de-vigged fair odds).
+   *
+   * Returns an empty map when no usable close exists: no pre-kickoff Pinnacle
+   * snapshots, fewer than two outcomes, or overround outside sanity bounds.
+   * De-vig: fairOdds(o) = rawOdds(o) × overround, where overround = Σ 1/rawOdds(k).
+   */
+  private async _closingPinnacleQuotes(
+    matchId: string,
+    startTime: Date,
+  ): Promise<ReadonlyMap<string, ClosingQuote>> {
+    const empty = new Map<string, ClosingQuote>();
+
+    const snaps = await this._prisma.oddsSnapshot.findMany({
+      where: {
+        matchId,
+        bookmaker: CLOSING_REFERENCE_BOOKMAKER,
+        market: 'H2H',
+        isLive: false,
+        capturedAt: { lte: startTime },
+      },
+      select: { outcome: true, price: true, capturedAt: true },
+    });
+
+    if (snaps.length === 0) return empty;
+
+    const latest = snaps.reduce(
+      (max, s) => (s.capturedAt > max ? s.capturedAt : max),
+      snaps[0].capturedAt,
+    );
+
+    const prices = new Map<string, number>();
+    for (const s of snaps) {
+      if (s.capturedAt.getTime() !== latest.getTime()) continue;
+      const price = toNumber(s.price);
+      if (!(price > 1) || prices.has(s.outcome)) continue;
+      prices.set(s.outcome, price);
+    }
+
+    if (prices.size < 2) return empty;
+
+    let overround = 0;
+    for (const price of prices.values()) overround += 1 / price;
+    if (overround < MIN_CLOSING_OVERROUND || overround > MAX_CLOSING_OVERROUND) {
+      this._logger.debug(
+        { matchId, overround: overround.toFixed(4) },
+        'Pinnacle closing overround out of bounds — skipping CLV for match',
+      );
+      return empty;
+    }
+
+    const quotes = new Map<string, ClosingQuote>();
+    for (const [outcome, raw] of prices) {
+      quotes.set(outcome, { raw, fair: raw * overround });
+    }
+    return quotes;
   }
 }

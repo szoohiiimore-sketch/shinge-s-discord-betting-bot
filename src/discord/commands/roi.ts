@@ -1,5 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
+import { aggregateSettledIdeas } from '@/value-detection';
+import { ROI_V2_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
+import type { ModelFilter } from '../reporting-config';
+import { loadHistoricalSeed } from '../historical-seed';
 
 type Period = '7d' | '30d' | 'all';
 
@@ -28,43 +32,88 @@ export async function getRoiStats(
   prisma: PrismaClient,
   period: Period,
   logger: Logger,
+  model: ModelFilter = 'combined',
 ): Promise<{ content: string }> {
-  logger.info({ command: 'roi', period }, 'Command execution started');
+  logger.info({ command: 'roi', period, model }, 'Command execution started');
 
-  const cutoff = periodCutoff(period);
-  const where = cutoff
-    ? { settledAt: { not: null, gte: cutoff }, match: { sport: { category: 'TRADITIONAL' as const } } }
-    : { settledAt: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } };
+  const periodCut = periodCutoff(period);
+  // ROI V2: never look before the clean baseline; take the later of period cutoff and baseline
+  const cutoff = periodCut && periodCut > ROI_V2_BASELINE ? periodCut : ROI_V2_BASELINE;
+  const models = modelsFor(model);
+  const where = {
+    settledAt: { not: null, gte: cutoff },
+    isShadow: false,
+    model: { in: [...models] },
+    match: { sport: { category: 'TRADITIONAL' as const } },
+  };
 
-  const settled = await prisma.valueOpportunity.findMany({
+  const settledRows = await prisma.valueOpportunity.findMany({
     where,
-    select: { betResult: true, profitLossUnits: true, edgePercentage: true },
+    select: {
+      matchId: true,
+      outcome: true,
+      bookmaker: true,
+      bookmakerOdds: true,
+      createdAt: true,
+      betResult: true,
+      profitLossUnits: true,
+      edgePercentage: true,
+      model: true,
+      confidence: true,
+    },
   });
 
-  if (settled.length === 0) {
-    return { content: `📊 **ROI — ${periodLabel(period)}**\n\nNo settled bets yet.` };
+  const seed = await loadHistoricalSeed(prisma);
+  const fmt = (units: number): string => `${units >= 0 ? '+' : ''}${units.toFixed(2)}u`;
+  const pct = (v: number | null): string => (v === null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
+
+  const lines = [`📊 **ROI — ${periodLabel(period)}**`];
+
+  // Three views per model: Historical (immutable backtest seed), Live (real
+  // settlements since the V2 baseline), Combined (sum — never a blind merge:
+  // both components stay visible). Ideas never merge across models.
+  for (const m of models) {
+    const modelRows = settledRows.filter(r => r.model === m);
+    const ideas = aggregateSettledIdeas(modelRows).map(i => i.headline);
+
+    const wins = ideas.filter(i => i.betResult === 'WIN').length;
+    const losses = ideas.filter(i => i.betResult === 'LOSS').length;
+    const pushes = ideas.filter(i => i.betResult === 'PUSH').length;
+    const liveSettled = ideas.length;
+    const livePnl = ideas.reduce((acc, i) => acc + toNum(i.profitLossUnits), 0);
+    const liveRoi = liveSettled > 0 ? (livePnl / liveSettled) * 100 : null;
+    const liveWinRate = liveSettled > 0 ? (wins / liveSettled) * 100 : null;
+
+    const h = seed[m];
+    const combSettled = h.settledIdeas + liveSettled;
+    const combPnl = h.profitUnits + livePnl;
+    const combWins = h.wins + wins;
+    const combRoi = combSettled > 0 ? (combPnl / combSettled) * 100 : null;
+    const combWinRate = combSettled > 0 ? (combWins / combSettled) * 100 : null;
+
+    if (combSettled === 0 && model === 'combined') continue;
+
+    lines.push(
+      '',
+      `**${modelDisplay(m)}**`,
+      `**Historical:** ${h.settledIdeas} ideas (${h.wins}W/${h.losses}L) | Win ${pct(h.winRatePct)} | P&L ${fmt(h.profitUnits)} | ROI **${pct(h.roiPct)}**`,
+      liveSettled > 0
+        ? `**Live:** ${liveSettled} ideas (${wins}W/${losses}L/${pushes}P, from ${modelRows.length} rows) | Win ${pct(liveWinRate)} | P&L ${fmt(livePnl)} | ROI **${pct(liveRoi)}**`
+        : `**Live:** no settled ideas yet`,
+      `**Combined:** ${combSettled} ideas | Win ${pct(combWinRate)} | P&L ${fmt(combPnl)} | ROI **${pct(combRoi)}**`,
+    );
+
+    // Legacy-family confidence distribution (live rows; A/B/C — reporting only).
+    const graded = ideas.filter(i => i.confidence);
+    if (graded.length > 0) {
+      const dist = (['A', 'B', 'C'] as const)
+        .map(g => `${g}: ${graded.filter(i => i.confidence === g).length}`)
+        .join(' | ');
+      lines.push(`**Confidence (live):** ${dist}`);
+    }
   }
 
-  const wins = settled.filter(s => s.betResult === 'WIN').length;
-  const losses = settled.filter(s => s.betResult === 'LOSS').length;
-  const pushes = settled.filter(s => s.betResult === 'PUSH').length;
-  const totalStaked = settled.length;
-  const totalPnl = settled.reduce((acc, s) => acc + toNum(s.profitLossUnits), 0);
-  const roi = totalStaked > 0 ? (totalPnl / totalStaked) * 100 : 0;
-  const winRate = totalStaked > 0 ? (wins / totalStaked) * 100 : 0;
-  const avgEdge = settled.reduce((acc, s) => acc + toNum(s.edgePercentage), 0) / settled.length;
-
-  const pnlSign = totalPnl >= 0 ? '+' : '';
-
-  const lines = [
-    `📊 **ROI — ${periodLabel(period)}**`,
-    '',
-    `**Bets:** ${totalStaked} (${wins}W / ${losses}L / ${pushes}P)`,
-    `**Win Rate:** ${winRate.toFixed(1)}%`,
-    `**P&L:** ${pnlSign}${totalPnl.toFixed(2)} units`,
-    `**ROI:** ${pnlSign}${roi.toFixed(2)}%`,
-    `**Avg Edge:** +${avgEdge.toFixed(1)}%`,
-  ];
+  lines.push('', '*Historical = immutable backtest seed (in-play-inferred results). Live = real settlements. Combined = both.*');
 
   return { content: lines.join('\n') };
 }

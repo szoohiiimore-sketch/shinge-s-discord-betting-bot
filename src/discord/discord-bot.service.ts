@@ -10,9 +10,13 @@ import { executeForceIngestion } from './commands/force-ingestion';
 import { getRoiStats } from './commands/roi';
 import { getPaperBankroll } from './commands/paper-bankroll';
 import { getBestSports } from './commands/best-sports';
+import { getClvStats } from './commands/clv';
 import { getValueBets } from './commands/value-bets';
 import type { ValueDetectionService } from '@/value-detection';
+import { aggregateSettledIdeas, oddsToNumber } from '@/value-detection';
 import type { Queue as BullmqQueue } from 'bullmq';
+import { ROI_V2_BASELINE, MODEL_OPTION_CHOICES } from './reporting-config';
+import { loadHistoricalSeed } from './historical-seed';
 
 const SLASH_COMMANDS = [
   { name: 'test-value-bets', description: 'Show top 5 value bets by edge' },
@@ -20,7 +24,7 @@ const SLASH_COMMANDS = [
   { name: 'force-scan', description: 'Trigger manual value detection on recent matches' },
   {
     name: 'force-ingestion',
-    description: 'Trigger real API fetch → odds snapshots → value detection',
+    description: 'Trigger real API fetch â†’ odds snapshots â†’ value detection',
     options: [
       {
         type: 3,
@@ -47,6 +51,13 @@ const SLASH_COMMANDS = [
     options: [
       {
         type: 3,
+        name: 'model',
+        description: 'Detection track: combined, legacy, pinnacle, or low-odds',
+        required: false,
+        choices: MODEL_OPTION_CHOICES,
+      },
+      {
+        type: 3,
         name: 'period',
         description: 'Time period: 7d, 30d, or all',
         required: false,
@@ -58,8 +69,33 @@ const SLASH_COMMANDS = [
       },
     ],
   },
-  { name: 'paper-bankroll', description: 'Show paper trading bankroll (starting: 1000 units)' },
+  {
+    name: 'paper-bankroll',
+    description: 'Show paper trading bankroll (starting: 1000 units)',
+    options: [
+      {
+        type: 3,
+        name: 'model',
+        description: 'Detection track: combined, legacy, pinnacle, or low-odds',
+        required: false,
+        choices: MODEL_OPTION_CHOICES,
+      },
+    ],
+  },
   { name: 'best-sports', description: 'Show ROI and win rate by sport' },
+  {
+    name: 'clv',
+    description: 'Show Closing Line Value stats (alert odds vs Pinnacle close)',
+    options: [
+      {
+        type: 3,
+        name: 'model',
+        description: 'Detection track: combined, legacy, pinnacle, or low-odds',
+        required: false,
+        choices: MODEL_OPTION_CHOICES,
+      },
+    ],
+  },
   {
     name: 'value-bets',
     description: 'Show value opportunities from the database (newest first)',
@@ -89,6 +125,8 @@ export interface DiscordBotConfig {
   readonly token: string;
   readonly clientId: string;
   readonly guildId: string;
+  /** Number of configured traditional sport keys â€” used in Rich Presence sport count. */
+  readonly configuredSportCount: number;
 }
 
 export class DiscordBotService {
@@ -197,19 +235,28 @@ export class DiscordBotService {
 
     if (commandName === 'roi') {
       const period = (interaction.options.getString('period') ?? 'all') as '7d' | '30d' | 'all';
-      const { content } = await getRoiStats(this._prisma, period, this._logger);
+      const model = (interaction.options.getString('model') ?? 'combined') as import('./reporting-config').ModelFilter;
+      const { content } = await getRoiStats(this._prisma, period, this._logger, model);
       await interaction.reply({ content });
       return;
     }
 
     if (commandName === 'paper-bankroll') {
-      const { content } = await getPaperBankroll(this._prisma, this._logger);
+      const model = (interaction.options.getString('model') ?? 'combined') as import('./reporting-config').ModelFilter;
+      const { content } = await getPaperBankroll(this._prisma, this._logger, model);
       await interaction.reply({ content });
       return;
     }
 
     if (commandName === 'best-sports') {
       const { content } = await getBestSports(this._prisma, this._logger);
+      await interaction.reply({ content });
+      return;
+    }
+
+    if (commandName === 'clv') {
+      const model = (interaction.options.getString('model') ?? 'combined') as import('./reporting-config').ModelFilter;
+      const { content } = await getClvStats(this._prisma, this._logger, model);
       await interaction.reply({ content });
       return;
     }
@@ -237,7 +284,7 @@ export class DiscordBotService {
       );
       this._logger.info({ count: SLASH_COMMANDS.length }, 'Slash commands registered successfully');
     } catch (err) {
-      this._logger.warn({ err: (err as Error).message }, 'Slash command registration failed — bot will still receive interactions if previously registered');
+      this._logger.warn({ err: (err as Error).message }, 'Slash command registration failed â€” bot will still receive interactions if previously registered');
     }
   }
 
@@ -247,46 +294,69 @@ export class DiscordBotService {
 
   private async _updatePresence(): Promise<void> {
     if (!this._client.user) {
-      this._logger.warn('Discord client user not available — skipping presence update');
+      this._logger.warn('Discord client user not available â€” skipping presence update');
       return;
     }
 
     try {
-      const settled = await this._prisma.valueOpportunity.findMany({
-        where: { betResult: { not: null }, match: { sport: { category: 'TRADITIONAL' as const } } },
-        select: { betResult: true, profitLossUnits: true },
+      const settledRows = await this._prisma.valueOpportunity.findMany({
+        where: {
+          betResult: { not: null },
+          settledAt: { gte: ROI_V2_BASELINE },
+          isShadow: false,
+          match: { sport: { category: 'TRADITIONAL' as const } },
+        },
+        select: {
+          matchId: true,
+          outcome: true,
+          bookmaker: true,
+          bookmakerOdds: true,
+          createdAt: true,
+          betResult: true,
+          profitLossUnits: true,
+          model: true,
+        },
       });
+
+      // Idea-level accounting: one unit per betting idea, scored on its headline
+      // row. Ideas are derived per model (never merged across models) and summed.
+      const ideas = (['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY'] as const).flatMap(m =>
+        aggregateSettledIdeas(settledRows.filter(r => r.model === m)).map(i => i.headline),
+      );
 
       let wins = 0;
       let losses = 0;
       let totalPL = 0;
 
-      for (const opp of settled) {
-        const pl = opp.profitLossUnits
-          ? (typeof opp.profitLossUnits === 'object' && 'toNumber' in opp.profitLossUnits
-              ? (opp.profitLossUnits as { toNumber(): number }).toNumber()
-              : Number(opp.profitLossUnits))
-          : 0;
+      for (const idea of ideas) {
+        const pl = idea.profitLossUnits ? oddsToNumber(idea.profitLossUnits) : 0;
         totalPL += pl;
 
-        if (opp.betResult === 'WIN') wins++;
-        else if (opp.betResult === 'LOSS') losses++;
+        if (idea.betResult === 'WIN') wins++;
+        else if (idea.betResult === 'LOSS') losses++;
       }
 
       const decidedBets = wins + losses;
-      const roi = decidedBets > 0 ? (totalPL / decidedBets) * 100 : 0;
-      const roiStr = roi > 0 ? `+${roi.toFixed(1)}%` : `${roi.toFixed(1)}%`;
+      const liveRoi = decidedBets > 0 ? (totalPL / decidedBets) * 100 : 0;
 
-      const sportCount = 54;
+      // Combined = immutable historical seed (all four tracks) + live settlements.
+      const seed = await loadHistoricalSeed(this._prisma);
+      const seedSettled = Object.values(seed).reduce((s, t) => s + t.settledIdeas, 0);
+      const seedProfit = Object.values(seed).reduce((s, t) => s + t.profitUnits, 0);
+      const combSettled = seedSettled + decidedBets;
+      const combRoi = combSettled > 0 ? ((seedProfit + totalPL) / combSettled) * 100 : 0;
+
+      const sign = (n: number): string => `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
+      const sportCount = this._config.configuredSportCount;
 
       this._client.user.setPresence({
         activities: [{
-          name: `ROI: ${roiStr} | ${sportCount} Sports`,
+          name: `ROI Live: ${sign(liveRoi)} | Comb: ${sign(combRoi)} | ${sportCount} Sports`,
           type: ActivityType.Watching,
         }],
       });
 
-      this._logger.debug({ roi: roiStr, sportCount, wins, losses, totalPL: totalPL.toFixed(2) }, 'Presence updated');
+      this._logger.debug({ liveRoi: sign(liveRoi), combinedRoi: sign(combRoi), sportCount, wins, losses, totalPL: totalPL.toFixed(2) }, 'Presence updated');
     } catch (err) {
       this._logger.warn({ err: (err as Error).message }, 'Failed to update Discord presence');
     }

@@ -1,0 +1,18 @@
+{
+  "name": "universe-nonsoccer-live-cadence",
+  "sportKeys": ["basketball_nba", "icehockey_nhl", "baseball_mlb", "mma_mixed_martial_arts", "aussierules_afl", "rugbyleague_nrl", "cricket_ipl"],
+  "periodStart": "2026-05-05T00:00:00Z",
+  "periodEnd": "2026-06-05T00:00:00Z",
+  "cadenceMode": "live-cadence",
+  "liveCadenceDefaultMinutes": 60,
+  "detector": {
+    "referenceBookmaker": "pinnacle",
+    "shadowEdgeThresholdPct": 2.0,
+    "productionEdgeThresholdPct": 3.0,
+    "maxEdgeThresholdPct": 100,
+    "maxCandidateOdds": 3.0,
+    "minReferenceOverround": 0.99,
+    "maxReferenceOverround": 1.15,
+    "excludeExchanges": true
+  }
+}

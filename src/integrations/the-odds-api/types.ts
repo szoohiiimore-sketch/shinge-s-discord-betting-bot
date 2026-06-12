@@ -98,30 +98,6 @@ export interface MatchOdds {
 export type GetOddsResponse = readonly MatchOdds[];
 
 // ──────────────────────────────────────────────
-// Historical Odds Response
-// ──────────────────────────────────────────────
-
-/** A single timestamped snapshot of odds for a match. */
-export interface OddsSnapshot {
-  readonly odds: readonly Bookmaker[];
-  readonly timestamp: string;
-}
-
-/** A match entry in the historical odds response. */
-export interface HistoricalMatchOdds {
-  readonly id: string;
-  readonly sport_key: string;
-  readonly sport_title: string;
-  readonly commence_time: string;
-  readonly home_team: string;
-  readonly away_team: string;
-  readonly odds_snapshots: readonly OddsSnapshot[];
-}
-
-/** Response from GET /v4/sports/{sport}/odds-history. */
-export type GetHistoricalOddsResponse = readonly HistoricalMatchOdds[];
-
-// ──────────────────────────────────────────────
 // API Error Response
 // ──────────────────────────────────────────────
 
@@ -184,16 +160,3 @@ export interface EventScore {
 
 /** Response from GET /v4/sports/{sport}/scores. */
 export type GetScoresResponse = readonly EventScore[];
-
-// ──────────────────────────────────────────────
-// Historical Odds Request Parameters
-// ──────────────────────────────────────────────
-
-/** Parameters for GET /v4/sports/{sport}/odds-history. */
-export interface HistoricalOddsRequestParams {
-  readonly regions?: string;
-  readonly markets?: string;
-  readonly oddsFormat?: OddsFormat;
-  readonly dateFrom?: string;
-  readonly dateTo?: string;
-}

@@ -1,0 +1,12 @@
+{
+  "planKey": "volume-first-usmajors-v1",
+  "sportKeys": ["basketball_nba", "icehockey_nhl"],
+  "periodStart": "2026-05-12T00:00:00Z",
+  "periodEnd": "2026-06-02T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 1950,
+  "minRemainingCredits": 70000,
+  "throttleMs": 250
+}

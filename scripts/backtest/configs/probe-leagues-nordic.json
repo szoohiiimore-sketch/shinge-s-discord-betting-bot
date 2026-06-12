@@ -1,0 +1,12 @@
+{
+  "planKey": "probe-nordic-leagues-v1",
+  "sportKeys": ["soccer_sweden_allsvenskan", "soccer_norway_eliteserien", "soccer_finland_veikkausliiga"],
+  "periodStart": "2026-05-01T00:00:00Z",
+  "periodEnd": "2026-06-07T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 5000,
+  "minRemainingCredits": 72000,
+  "throttleMs": 250
+}

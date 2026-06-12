@@ -1,0 +1,22 @@
+{
+    "periodStart":  "2026-05-12T00:00:00Z",
+    "model":  "legacy",
+    "periodEnd":  "2026-06-02T00:00:00Z",
+    "liveCadenceDefaultMinutes":  60,
+    "name":  "legacy-usmajors",
+    "detector":  {
+                     "excludeExchanges":  true,
+                     "referenceBookmaker":  "pinnacle",
+                     "minReferenceOverround":  0.99,
+                     "maxEdgeThresholdPct":  100,
+                     "maxCandidateOdds":  3,
+                     "shadowEdgeThresholdPct":  2,
+                     "maxReferenceOverround":  1.15,
+                     "productionEdgeThresholdPct":  3
+                 },
+    "cadenceMode":  "live-cadence",
+    "sportKeys":  [
+                      "basketball_nba",
+                      "icehockey_nhl"
+                  ]
+}

@@ -1,0 +1,12 @@
+{
+  "planKey": "volume-first-soccer5-v1",
+  "sportKeys": ["soccer_usa_mls", "soccer_japan_j_league", "soccer_korea_kleague1", "soccer_argentina_primera_division", "soccer_brazil_campeonato"],
+  "periodStart": "2026-05-12T00:00:00Z",
+  "periodEnd": "2026-06-02T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 4800,
+  "minRemainingCredits": 70000,
+  "throttleMs": 250
+}

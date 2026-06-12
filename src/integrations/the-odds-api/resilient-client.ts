@@ -9,10 +9,8 @@ import { createInitialQuotaState } from './quota.types';
 import type {
   GetSportsResponse,
   GetOddsResponse,
-  GetHistoricalOddsResponse,
   GetScoresResponse,
   OddsRequestParams,
-  HistoricalOddsRequestParams,
 } from './types';
 
 /**
@@ -70,16 +68,6 @@ export class ResilientOddsApiClient implements OddsApiClient {
     return this.executeWithResilience(
       () => this.inner.getOdds(sportKey, params),
       'getOdds',
-    );
-  }
-
-  async getHistoricalOdds(
-    sportKey: string,
-    params?: HistoricalOddsRequestParams,
-  ): Promise<GetHistoricalOddsResponse> {
-    return this.executeWithResilience(
-      () => this.inner.getHistoricalOdds(sportKey, params),
-      'getHistoricalOdds',
     );
   }
 

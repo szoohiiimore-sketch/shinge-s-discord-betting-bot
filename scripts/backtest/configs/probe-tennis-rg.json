@@ -1,0 +1,12 @@
+{
+  "planKey": "probe-tennis-frenchopen-v1",
+  "sportKeys": ["tennis_atp_french_open"],
+  "periodStart": "2026-05-25T00:00:00Z",
+  "periodEnd": "2026-06-07T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 3500,
+  "minRemainingCredits": 72000,
+  "throttleMs": 250
+}

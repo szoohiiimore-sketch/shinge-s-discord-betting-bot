@@ -159,6 +159,7 @@ export function createIngestionDependencies(
       token: config.discord.token,
       alertChannelId: config.discord.alertChannelId,
       outcomesChannelId: config.discord.outcomesChannelId,
+      lowOddsChannelId: config.discord.lowOddsChannelId,
     },
     logger,
   );
@@ -199,7 +200,12 @@ export function createIngestionDependencies(
 
   // ── Discord bot (slash commands + operational visibility) ──────────
   const discordBot = new DiscordBotService(
-    { token: config.discord.token, clientId: config.discord.clientId, guildId: config.discord.guildId },
+    {
+      token: config.discord.token,
+      clientId: config.discord.clientId,
+      guildId: config.discord.guildId,
+      configuredSportCount: traditionalSportKeys.length,
+    },
     prisma,
     redis,
     { [QueueName.MATCH_FETCH]: matchFetchQueue, [QueueName.ODDS_FETCH]: oddsFetchQueue, [QueueName.AI_ANALYSIS]: aiAnalysisQueue },

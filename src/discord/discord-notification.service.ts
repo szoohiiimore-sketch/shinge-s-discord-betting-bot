@@ -2,12 +2,28 @@ import { REST, Routes } from 'discord.js';
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
 import type { SettledOpportunityNotification } from '@/settlement';
+import {
+  groupIdeas,
+  selectHeadline,
+  isExchange,
+  bookmakerFamily,
+  corroborationCount,
+  aggregateSettledIdeas,
+  oddsToNumber,
+} from '@/value-detection';
+import { ROI_V2_BASELINE } from './reporting-config';
 
 export interface DiscordNotificationConfig {
   readonly token: string;
   readonly alertChannelId: string;
   /** Optional — if omitted, outcome and daily-summary notifications are silently skipped. */
   readonly outcomesChannelId?: string;
+  /**
+   * #bet-alert-lower-odds — LOW ODDS track alerts route ONLY here, never to the
+   * main alert channel. If omitted, low-odds rows are stamped without alerting
+   * (storage/settlement/ROI continue) and a warning is logged.
+   */
+  readonly lowOddsChannelId?: string;
 }
 
 export interface NotifyResult {
@@ -46,14 +62,6 @@ function displayEdge(raw: unknown): string {
   return `+${n.toFixed(1)}%`;
 }
 
-function displayProbability(odds: unknown): string {
-  const n = typeof odds === 'object' && odds !== null && 'toNumber' in odds
-    ? (odds as { toNumber(): number }).toNumber()
-    : Number(odds);
-  if (n <= 0) return '0.0%';
-  return `${((1 / n) * 100).toFixed(1)}%`;
-}
-
 function displayTime(d: Date): string {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
@@ -73,53 +81,161 @@ function displayPL(units: number): string {
   return units >= 0 ? `+${units.toFixed(2)}u` : `${units.toFixed(2)}u`;
 }
 
-function formatAlert(opp: {
-  sport: string;
-  bookmaker: string;
-  outcome: string;
-  bookmakerOdds: unknown;
-  fairOdds: unknown;
-  edgePercentage: unknown;
-  consensusProbability: unknown;
-  capturedAt: Date;
-  match: {
+const SPORT_EMOJI: Record<string, string> = {
+  soccer: '⚽',
+  basketball: '🏀',
+  baseball: '⚾',
+  'ice-hockey': '🏒',
+  hockey: '🏒',
+  tennis: '🎾',
+  football: '🏈',
+};
+
+/** Visible model attribution shown directly under every alert title. */
+const MODEL_TAG: Record<string, string> = {
+  LEGACY: '(LEGACY SYSTEM)',
+  PINNACLE_LED: '(EXPERIMENTAL PINNACLE-LED SYSTEM)',
+  LOW_ODDS_LEGACY: '(LOW ODDS LEGACY SYSTEM)',
+  LOW_ODDS_PINNACLE_LED: '(LOW ODDS EXPERIMENTAL PINNACLE-LED SYSTEM)',
+};
+
+/** LOW ODDS tracks route to the dedicated channel, never the main one. */
+function isLowOddsModel(model: string): boolean {
+  return model === 'LOW_ODDS_LEGACY' || model === 'LOW_ODDS_PINNACLE_LED';
+}
+
+/** One pending ValueOpportunity row with its match relation, as loaded for alerting. */
+export interface PendingAlertRow {
+  readonly id: string;
+  readonly model: string;
+  readonly matchId: string;
+  readonly sport: string;
+  readonly bookmaker: string;
+  readonly outcome: string;
+  readonly bookmakerOdds: unknown;
+  readonly fairOdds: unknown;
+  readonly edgePercentage: unknown;
+  readonly pinnacleMove6h: unknown;
+  readonly confidence?: string | null;
+  readonly createdAt: Date;
+  readonly match: {
     startTime: Date;
     league?: { name: string } | null;
     homeTeam: { name: string };
     awayTeam: { name: string };
   };
-}): string {
+}
+
+function toEdgeNumber(v: unknown): number {
+  return oddsToNumber(v);
+}
+
+function movementSuffix(move6h: unknown): string {
+  if (move6h === null || move6h === undefined) return '';
+  const m = oddsToNumber(move6h);
+  const direction = m < -1 ? 'moving toward outcome' : m > 1 ? 'moving away from outcome' : 'stable';
+  return ` | Pinnacle 6h: ${m >= 0 ? '+' : ''}${m.toFixed(1)}% (${direction})`;
+}
+
+/**
+ * Formats one idea-level alert: best non-exchange bookmaker headlined,
+ * family-collapsed alternatives listed, corroboration count + movement shown.
+ * Returns null when the idea has no non-exchange member (exchange-only ideas
+ * are stamped silently and never alerted).
+ */
+export function formatIdeaAlert(members: readonly PendingAlertRow[]): string | null {
+  const nonExchange = members.filter(m => !isExchange(m.bookmaker));
+  if (nonExchange.length === 0) return null;
+
+  const headline = selectHeadline(nonExchange)!;
+
+  // Alternatives: best skin per family among non-exchange members, headline's family excluded.
+  const bestPerFamily = new Map<string, PendingAlertRow>();
+  for (const m of nonExchange) {
+    const family = bookmakerFamily(m.bookmaker);
+    const current = bestPerFamily.get(family);
+    if (!current || oddsToNumber(m.bookmakerOdds) > oddsToNumber(current.bookmakerOdds)) {
+      bestPerFamily.set(family, m);
+    }
+  }
+  bestPerFamily.delete(bookmakerFamily(headline.bookmaker));
+  const alternatives = [...bestPerFamily.values()]
+    .sort((a, b) => oddsToNumber(b.bookmakerOdds) - oddsToNumber(a.bookmakerOdds))
+    .slice(0, 6);
+
   const localStart = new Intl.DateTimeFormat('en-GB', {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
     timeZone: 'Europe/Budapest', hour12: false,
-  }).format(opp.match.startTime).replace(',', '');
+  }).format(headline.match.startTime).replace(',', '');
+
+  const emoji = SPORT_EMOJI[headline.sport] ?? '🏟️';
+  const league = headline.match.league?.name ? ` | ${headline.match.league.name}` : '';
+  const k = corroborationCount(members);
 
   const lines = [
-    '🎯 **VALUE BET DETECTED**',
+    `🎯 **VALUE BET — ${headline.outcome}**`,
+    `**${MODEL_TAG[headline.model] ?? `(${headline.model})`}**`,
+    `${emoji} ${displaySport(headline.sport)} | ${headline.match.homeTeam.name} vs ${headline.match.awayTeam.name}${league}`,
+    `🕐 ${displayTime(headline.match.startTime)} (${localStart} Budapest)`,
     '',
-    opp.match.league?.name ? `**League:** ${opp.match.league.name}` : undefined,
+    `💰 **Best:** ${displayOdds(headline.bookmakerOdds)} @ ${displayBookmaker(headline.bookmaker)}  (edge ${displayEdge(headline.edgePercentage)}, fair ${displayOdds(headline.fairOdds)})`,
+  ];
+
+  if (alternatives.length > 0) {
+    const alts = alternatives
+      .map(a => `${displayOdds(a.bookmakerOdds)} @ ${displayBookmaker(a.bookmaker)} (${displayEdge(a.edgePercentage)})`)
+      .join(' · ');
+    lines.push(`📋 **Also:** ${alts}`);
+  }
+
+  lines.push(
     '',
-    `**Starts:**`,
-    `${displayTime(opp.match.startTime)}`,
-    `(${localStart} Budapest)`,
-    '',
-    `**Sport:** ${displaySport(opp.sport)}`,
-    `**Match:** ${opp.match.homeTeam.name} vs ${opp.match.awayTeam.name}`,
-    '',
-    `**Outcome:** ${opp.outcome}`,
-    `**Bookmaker:** ${displayBookmaker(opp.bookmaker)}`,
-    '',
-    `**Market Probability:** ${displayProbability(opp.bookmakerOdds)}`,
-    `**Consensus Probability:** ${displayProbability(opp.fairOdds)}`,
-    `**Odds:** ${displayOdds(opp.bookmakerOdds)}`,
-    `**Fair Odds:** ${displayOdds(opp.fairOdds)}`,
-    `**Edge:** ${displayEdge(opp.edgePercentage)}`,
-    '',
-    `**Captured:** ${displayTime(opp.capturedAt)}`,
-  ].filter(Boolean);
+    `📊 Books agreeing: ${k} ${k === 1 ? 'family' : 'families'}${movementSuffix(headline.pinnacleMove6h)}`,
+  );
+
+  // Legacy-family confidence grade (ranking/reporting only, never suppression).
+  if (headline.confidence) {
+    lines.push(`🔠 Confidence: **${headline.confidence}**`);
+  }
 
   return lines.join('\n');
+}
+
+/** Minimum improvement over the alerted best price to justify an upgrade message. */
+const UPGRADE_ODDS_RATIO = 1.02;
+const UPGRADE_EDGE_DELTA_PP = 1.5;
+
+/**
+ * Builds an upgrade message for an already-alerted idea, or null when the new
+ * rows don't improve materially on what was alerted (silent stamp).
+ */
+function formatUpgradeAlert(
+  members: readonly PendingAlertRow[],
+  alerted: ReadonlyArray<{ bookmaker: string; bookmakerOdds: unknown; edgePercentage: unknown }>,
+): string | null {
+  const nonExchange = members.filter(m => !isExchange(m.bookmaker));
+  if (nonExchange.length === 0) return null;
+
+  const newHeadline = selectHeadline(nonExchange)!;
+  const newOdds = oddsToNumber(newHeadline.bookmakerOdds);
+  const newEdge = toEdgeNumber(newHeadline.edgePercentage);
+
+  const alertedNonExchange = alerted.filter(a => !isExchange(a.bookmaker));
+  const baseline = alertedNonExchange.length > 0 ? alertedNonExchange : alerted;
+  const prevBestOdds = Math.max(...baseline.map(a => oddsToNumber(a.bookmakerOdds)));
+  const prevBestEdge = Math.max(...baseline.map(a => toEdgeNumber(a.edgePercentage)));
+
+  const materiallyBetter =
+    newOdds >= prevBestOdds * UPGRADE_ODDS_RATIO || newEdge >= prevBestEdge + UPGRADE_EDGE_DELTA_PP;
+  if (!materiallyBetter) return null;
+
+  return [
+    `⬆️ **VALUE BET UPGRADE — ${newHeadline.outcome}**`,
+    `**${MODEL_TAG[newHeadline.model] ?? `(${newHeadline.model})`}**`,
+    `${newHeadline.match.homeTeam.name} vs ${newHeadline.match.awayTeam.name}`,
+    `💰 New best: ${displayOdds(newHeadline.bookmakerOdds)} @ ${displayBookmaker(newHeadline.bookmaker)} (edge ${displayEdge(newHeadline.edgePercentage)}) — previous best ${prevBestOdds.toFixed(2)}`,
+  ].join('\n');
 }
 
 function formatOutcome(opp: SettledOpportunityNotification): string {
@@ -138,6 +254,7 @@ export class DiscordNotificationService {
   private readonly _rest: REST;
   private readonly _channelId: string;
   private readonly _outcomesChannelId: string | undefined;
+  private readonly _lowOddsChannelId: string | undefined;
   private readonly _logger: Logger;
 
   constructor(
@@ -149,12 +266,21 @@ export class DiscordNotificationService {
     this._rest = new REST({ version: '10' }).setToken(config.token);
     this._channelId = config.alertChannelId;
     this._outcomesChannelId = config.outcomesChannelId;
+    this._lowOddsChannelId = config.lowOddsChannelId;
     this._logger = logger.child({ service: 'DiscordNotificationService' });
   }
 
+  /**
+   * Idea-level alerting: pending production rows are grouped into betting ideas
+   * (matchId, outcome); one Discord message is sent per idea — best non-exchange
+   * bookmaker headlined, alternatives listed. All member rows are stamped
+   * `alertedAt` together ("consumed by the alert layer"). Ideas that were already
+   * alerted get no second message unless the upgrade rule fires; exchange-only
+   * ideas are stamped silently and never alerted.
+   */
   async notifyPendingOpportunities(): Promise<NotifyResult> {
     const pending = await this._prisma.valueOpportunity.findMany({
-      where: { alertedAt: null, match: { sport: { category: 'TRADITIONAL' as const } } },
+      where: { alertedAt: null, isShadow: false, match: { sport: { category: 'TRADITIONAL' as const } } },
       include: {
         match: {
           include: {
@@ -172,33 +298,92 @@ export class DiscordNotificationService {
       return { notified: 0, failed: 0 };
     }
 
-    this._logger.info({ count: pending.length }, 'Sending Discord alerts for pending opportunities');
+    // Dual-model A/B: ideas must NEVER merge across models — the same
+    // (match, outcome) can legitimately be alerted once per model, each tagged.
+    const ideasByModel = new Map<string, ReturnType<typeof groupIdeas<(typeof pending)[number]>>>();
+    for (const model of new Set(pending.map(p => p.model))) {
+      ideasByModel.set(model, groupIdeas(pending.filter(p => p.model === model)));
+    }
+
+    // Already-alerted sibling rows of the same ideas — detect re-alerts and upgrade baselines.
+    const alertedSiblings = await this._prisma.valueOpportunity.findMany({
+      where: {
+        matchId: { in: [...new Set(pending.map(p => p.matchId))] },
+        alertedAt: { not: null },
+        isShadow: false,
+      },
+      select: {
+        matchId: true,
+        outcome: true,
+        bookmaker: true,
+        bookmakerOdds: true,
+        edgePercentage: true,
+        createdAt: true,
+        model: true,
+      },
+    });
+
+    const totalIdeas = [...ideasByModel.values()].reduce((s, m) => s + m.size, 0);
+    this._logger.info(
+      { pendingRows: pending.length, ideas: totalIdeas, models: [...ideasByModel.keys()] },
+      'Sending idea-level Discord alerts for pending opportunities',
+    );
 
     let notified = 0;
     let failed = 0;
 
-    for (const opp of pending) {
-      try {
-        const content = formatAlert(opp);
-        await this._rest.post(Routes.channelMessages(this._channelId), {
-          body: { content },
-        });
-        await this._prisma.valueOpportunity.update({
-          where: { id: opp.id },
-          data: { alertedAt: new Date() },
-        });
-        notified++;
-        this._logger.debug({ opportunityId: opp.id, outcome: opp.outcome }, 'Discord alert sent');
-      } catch (err) {
-        failed++;
-        this._logger.error(
-          { opportunityId: opp.id, err: (err as Error).message },
-          'Discord alert failed — will retry on next run',
-        );
+    for (const [model, ideas] of ideasByModel) {
+      const alertedByIdea = groupIdeas(alertedSiblings.filter(s => s.model === model));
+      for (const [key, members] of ideas) {
+        const alerted = alertedByIdea.get(key) ?? [];
+        try {
+          let content = alerted.length > 0
+            ? formatUpgradeAlert(members, alerted)
+            : formatIdeaAlert(members);
+
+          // Channel routing: LOW ODDS tracks go ONLY to #bet-alert-lower-odds.
+          let channelId = this._channelId;
+          if (isLowOddsModel(model)) {
+            if (this._lowOddsChannelId) {
+              channelId = this._lowOddsChannelId;
+            } else {
+              if (content) this._logger.warn({ idea: key, model }, 'Low-odds alert dropped — LOW_ODDS_ALERT_CHANNEL_ID not configured (row stamped, accounting unaffected)');
+              content = null; // stamp silently; never leak into the main channel
+            }
+          }
+
+          if (content) {
+            await this._rest.post(Routes.channelMessages(channelId), {
+              body: { content },
+            });
+            notified++;
+            this._logger.debug(
+              { idea: key, model, rows: members.length, upgrade: alerted.length > 0 },
+              'Idea-level Discord alert sent',
+            );
+          } else {
+            this._logger.debug(
+              { idea: key, model, rows: members.length, reason: alerted.length > 0 ? 'no material upgrade' : 'exchange-only idea' },
+              'Idea stamped without alert',
+            );
+          }
+
+          // Stamp every member row in one update — rows are consumed by the idea alert.
+          await this._prisma.valueOpportunity.updateMany({
+            where: { id: { in: members.map(m => m.id) } },
+            data: { alertedAt: new Date() },
+          });
+        } catch (err) {
+          failed++;
+          this._logger.error(
+            { idea: key, model, err: (err as Error).message },
+            'Idea-level Discord alert failed — will retry on next run',
+          );
+        }
       }
     }
 
-    this._logger.info({ notified, failed }, 'Discord alert run complete');
+    this._logger.info({ notified, failed, ideas: totalIdeas }, 'Discord alert run complete');
     return { notified, failed };
   }
 
@@ -226,65 +411,96 @@ export class DiscordNotificationService {
   async notifyDailySummary(): Promise<void> {
     if (!this._outcomesChannelId) return;
 
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // ROI V2: never look before the clean baseline
+    const since = since24h > ROI_V2_BASELINE ? since24h : ROI_V2_BASELINE;
 
-    const settled = await this._prisma.valueOpportunity.findMany({
+    const settledRows = await this._prisma.valueOpportunity.findMany({
       where: {
         settledAt: { gte: since },
         betResult: { not: null },
+        isShadow: false,
         match: { sport: { category: 'TRADITIONAL' as const } },
       },
       select: {
+        matchId: true,
+        outcome: true,
+        bookmaker: true,
+        bookmakerOdds: true,
+        createdAt: true,
         betResult: true,
         profitLossUnits: true,
+        clvPercentage: true,
+        clvPositive: true,
+        model: true,
       },
     });
 
-    if (settled.length === 0) {
+    if (settledRows.length === 0) {
       this._logger.info('No settled bets in last 24h — skipping daily summary');
       return;
     }
 
-    let wins = 0;
-    let losses = 0;
-    let voids = 0;
-    let totalPL = 0;
-
-    for (const opp of settled) {
-      const pl = opp.profitLossUnits
-        ? (typeof opp.profitLossUnits === 'object' && 'toNumber' in opp.profitLossUnits
-            ? (opp.profitLossUnits as { toNumber(): number }).toNumber()
-            : Number(opp.profitLossUnits))
-        : 0;
-      totalPL += pl;
-
-      if (opp.betResult === 'WIN') wins++;
-      else if (opp.betResult === 'LOSS') losses++;
-      else voids++;
-    }
-
-    const decidedBets = wins + losses;
-    const winRate = decidedBets > 0 ? (wins / decidedBets) * 100 : 0;
-    const roi = decidedBets > 0 ? (totalPL / decidedBets) * 100 : 0;
-
     const today = new Date().toLocaleDateString('en-GB', {
       day: 'numeric', month: 'long', year: 'numeric',
     });
+    const lines = [`📊 **DAILY SUMMARY** — ${today}`];
+    let totalIdeas = 0;
 
-    const lines = [
-      `📊 **DAILY SUMMARY** — ${today}`,
-      '',
-      `Settled Bets: **${settled.length}**`,
-      `Wins: **${wins}** | Losses: **${losses}** | Void: **${voids}**`,
-      `Win Rate: **${winRate.toFixed(1)}%**`,
-      `Profit: **${displayPL(totalPL)}** | ROI: **${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%**`,
-    ];
+    // Per-model sections — idea-level accounting is computed strictly within a
+    // model (ideas never merge across models in the dual-model A/B).
+    for (const model of ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY'] as const) {
+      const modelRows = settledRows.filter(r => r.model === model);
+      if (modelRows.length === 0) continue;
+      const ideas = aggregateSettledIdeas(modelRows).map(i => i.headline);
+      totalIdeas += ideas.length;
+
+      let wins = 0;
+      let losses = 0;
+      let voids = 0;
+      let totalPL = 0;
+      for (const idea of ideas) {
+        totalPL += idea.profitLossUnits ? oddsToNumber(idea.profitLossUnits) : 0;
+        if (idea.betResult === 'WIN') wins++;
+        else if (idea.betResult === 'LOSS') losses++;
+        else voids++;
+      }
+      const decidedBets = wins + losses;
+      const winRate = decidedBets > 0 ? (wins / decidedBets) * 100 : 0;
+      const roi = decidedBets > 0 ? (totalPL / decidedBets) * 100 : 0;
+
+      lines.push(
+        '',
+        `**${MODEL_TAG[model]}**`,
+        `Settled Ideas: **${ideas.length}** (from ${modelRows.length} bookmaker rows)`,
+        `Wins: **${wins}** | Losses: **${losses}** | Void: **${voids}** | Win Rate: **${winRate.toFixed(1)}%**`,
+        `Profit: **${displayPL(totalPL)}** | ROI: **${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%**`,
+      );
+
+      // CLV — headline-row CLV per idea, only when at least one idea has CLV data.
+      const clvValues = ideas
+        .filter(i => i.clvPercentage !== null)
+        .map(i => oddsToNumber(i.clvPercentage))
+        .sort((a, b) => a - b);
+      if (clvValues.length > 0) {
+        const clvAvg = clvValues.reduce((a, b) => a + b, 0) / clvValues.length;
+        const mid = Math.floor(clvValues.length / 2);
+        const clvMedian = clvValues.length % 2 === 0
+          ? (clvValues[mid - 1] + clvValues[mid]) / 2
+          : clvValues[mid];
+        const clvPositive = ideas.filter(i => i.clvPositive === true).length;
+        const sign = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+        lines.push(
+          `📈 CLV (ideas, vs Pinnacle close): avg **${sign(clvAvg)}** | median **${sign(clvMedian)}** | positive **${((clvPositive / clvValues.length) * 100).toFixed(0)}%** (n=${clvValues.length})`,
+        );
+      }
+    }
 
     try {
       await this._rest.post(Routes.channelMessages(this._outcomesChannelId), {
         body: { content: lines.join('\n') },
       });
-      this._logger.info({ wins, losses, voids, totalPL: totalPL.toFixed(2) }, 'Daily summary sent');
+      this._logger.info({ ideas: totalIdeas, rows: settledRows.length }, 'Daily summary sent');
     } catch (err) {
       this._logger.error({ err: (err as Error).message }, 'Daily summary notification failed');
     }

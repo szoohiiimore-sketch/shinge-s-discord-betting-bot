@@ -1,0 +1,12 @@
+{
+  "planKey": "universe-mlb-v1",
+  "sportKeys": ["baseball_mlb"],
+  "periodStart": "2026-05-19T00:00:00Z",
+  "periodEnd": "2026-06-02T00:00:00Z",
+  "regions": "eu",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 4000,
+  "minRemainingCredits": 50000,
+  "throttleMs": 250
+}

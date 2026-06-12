@@ -1,0 +1,18 @@
+{
+  "name": "probe-nordic-leagues-fullres",
+  "sportKeys": ["soccer_sweden_allsvenskan", "soccer_norway_eliteserien", "soccer_finland_veikkausliiga"],
+  "periodStart": "2026-05-01T00:00:00Z",
+  "periodEnd": "2026-06-07T00:00:00Z",
+  "cadenceMode": "full-resolution",
+  "liveCadenceDefaultMinutes": 180,
+  "detector": {
+    "referenceBookmaker": "pinnacle",
+    "shadowEdgeThresholdPct": 2.0,
+    "productionEdgeThresholdPct": 3.0,
+    "maxEdgeThresholdPct": 100,
+    "maxCandidateOdds": 3.0,
+    "minReferenceOverround": 0.99,
+    "maxReferenceOverround": 1.15,
+    "excludeExchanges": true
+  }
+}

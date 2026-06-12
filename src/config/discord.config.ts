@@ -16,6 +16,8 @@ const schema = z
       .string()
       .min(1, 'DISCORD_ALERT_CHANNEL_ID is required'),
     DISCORD_OUTCOMES_CHANNEL_ID: z.string().optional(),
+    /** #bet-alert-lower-odds — LOW ODDS track alerts route only here. */
+    DISCORD_LOW_ODDS_CHANNEL_ID: z.string().optional(),
   })
   .transform((env) => ({
     token: env.DISCORD_TOKEN,
@@ -23,6 +25,7 @@ const schema = z
     guildId: env.DISCORD_GUILD_ID,
     alertChannelId: env.DISCORD_ALERT_CHANNEL_ID,
     outcomesChannelId: env.DISCORD_OUTCOMES_CHANNEL_ID,
+    lowOddsChannelId: env.DISCORD_LOW_ODDS_CHANNEL_ID,
   }));
 
 export function loadDiscordConfig(env: Record<string, string | undefined>): DiscordConfig {

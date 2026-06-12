@@ -20,6 +20,8 @@ export interface DiscordConfig {
   alertChannelId: string;
   /** Optional — enables outcome and daily-summary notifications when set. */
   outcomesChannelId?: string;
+  /** Optional — #bet-alert-lower-odds; LOW ODDS track alerts route only here. */
+  lowOddsChannelId?: string;
 }
 
 export interface ApiConfig {

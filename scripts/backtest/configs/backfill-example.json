@@ -1,0 +1,11 @@
+{
+  "planKey": "targeted-soccer-2025h2-v1",
+  "sportKeys": ["soccer_sweden_superettan", "soccer_brazil_serie_b", "soccer_spain_segunda_division"],
+  "periodStart": "2025-08-01T00:00:00Z",
+  "periodEnd": "2026-02-01T00:00:00Z",
+  "regions": "eu,uk",
+  "mode": "targeted",
+  "targetedOffsetsHours": [24, 6, 1, 0.083],
+  "maxCredits": 60000,
+  "minRemainingCredits": 10000
+}
