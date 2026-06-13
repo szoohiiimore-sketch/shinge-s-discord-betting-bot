@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
 import { aggregateSettledIdeas } from '@/value-detection';
-import { ROI_V2_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
+import { LIVE_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
 import type { ModelFilter, DetectionModelValue } from '../reporting-config';
 
 function toNum(v: unknown): number {
@@ -103,7 +103,7 @@ async function clvSectionForModel(
   model: DetectionModelValue,
 ): Promise<string[]> {
   const baseWhere = {
-    settledAt: { not: null, gte: ROI_V2_BASELINE },
+    settledAt: { not: null, gte: LIVE_BASELINE },
     model,
     match: { sport: { category: 'TRADITIONAL' as const } },
   };

@@ -11,7 +11,7 @@ import {
   aggregateSettledIdeas,
   oddsToNumber,
 } from '@/value-detection';
-import { ROI_V2_BASELINE } from './reporting-config';
+import { LIVE_BASELINE } from './reporting-config';
 
 export interface DiscordNotificationConfig {
   readonly token: string;
@@ -412,8 +412,8 @@ export class DiscordNotificationService {
     if (!this._outcomesChannelId) return;
 
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    // ROI V2: never look before the clean baseline
-    const since = since24h > ROI_V2_BASELINE ? since24h : ROI_V2_BASELINE;
+    // Live metrics never look before the live baseline
+    const since = since24h > LIVE_BASELINE ? since24h : LIVE_BASELINE;
 
     const settledRows = await this._prisma.valueOpportunity.findMany({
       where: {

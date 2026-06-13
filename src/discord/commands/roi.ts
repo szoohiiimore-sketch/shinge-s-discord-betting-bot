@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
 import { aggregateSettledIdeas } from '@/value-detection';
-import { ROI_V2_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
+import { LIVE_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
 import type { ModelFilter } from '../reporting-config';
 import { loadHistoricalSeed } from '../historical-seed';
 
@@ -37,8 +37,8 @@ export async function getRoiStats(
   logger.info({ command: 'roi', period, model }, 'Command execution started');
 
   const periodCut = periodCutoff(period);
-  // ROI V2: never look before the clean baseline; take the later of period cutoff and baseline
-  const cutoff = periodCut && periodCut > ROI_V2_BASELINE ? periodCut : ROI_V2_BASELINE;
+  // Live metrics never look before the live baseline; take the later of period cutoff and baseline
+  const cutoff = periodCut && periodCut > LIVE_BASELINE ? periodCut : LIVE_BASELINE;
   const models = modelsFor(model);
   const where = {
     settledAt: { not: null, gte: cutoff },

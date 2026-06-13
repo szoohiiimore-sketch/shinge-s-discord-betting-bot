@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
-import { ROI_V2_BASELINE } from '../reporting-config';
+import { LIVE_BASELINE } from '../reporting-config';
 
 function toNum(v: unknown): number {
   if (typeof v === 'number') return v;
@@ -26,7 +26,7 @@ export async function getBestSports(
   logger.info({ command: 'best-sports' }, 'Command execution started');
 
   const settled = await prisma.valueOpportunity.findMany({
-    where: { settledAt: { not: null, gte: ROI_V2_BASELINE }, isShadow: false, match: { sport: { category: 'TRADITIONAL' as const } } },
+    where: { settledAt: { not: null, gte: LIVE_BASELINE }, isShadow: false, match: { sport: { category: 'TRADITIONAL' as const } } },
     select: { sport: true, betResult: true, profitLossUnits: true },
   });
 

@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
 import { aggregateSettledIdeas, oddsToNumber } from '@/value-detection';
-import { ROI_V2_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
+import { LIVE_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
 import type { ModelFilter } from '../reporting-config';
 
 const STARTING_BANKROLL = 1000;
@@ -16,7 +16,7 @@ export async function getPaperBankroll(
   const models = modelsFor(model);
   const settledRows = await prisma.valueOpportunity.findMany({
     where: {
-      settledAt: { not: null, gte: ROI_V2_BASELINE },
+      settledAt: { not: null, gte: LIVE_BASELINE },
       isShadow: false,
       model: { in: [...models] },
       match: { sport: { category: 'TRADITIONAL' as const } },

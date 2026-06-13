@@ -11,6 +11,30 @@
 export const ROI_V2_BASELINE = new Date('2026-06-10T20:00:00.000Z');
 
 /**
+ * Live performance baseline — settlements before this instant are excluded
+ * from every LIVE metric (/roi, /paper-bankroll, /best-sports, /clv, daily
+ * summary, Rich Presence). Data is never deleted or modified; rows settled
+ * earlier are simply not counted as "live".
+ *
+ * Configurable via LIVE_BASELINE_DATE (ISO 8601, e.g. 2026-06-12T18:00:00Z).
+ * If unset or unparseable, behavior is unchanged (falls back to ROI_V2_BASELINE).
+ * The effective baseline is never earlier than ROI_V2_BASELINE, which guards
+ * against the pre-V2 contaminated data regardless of the env value.
+ *
+ * Historical (backtest seed) reporting is unaffected; Combined remains
+ * Historical + Live(after this baseline). See LIVE_BASELINE_RESET_IMPLEMENTATION.md.
+ */
+function parseLiveBaseline(): Date {
+  const raw = process.env.LIVE_BASELINE_DATE;
+  if (!raw) return ROI_V2_BASELINE;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return ROI_V2_BASELINE;
+  return parsed > ROI_V2_BASELINE ? parsed : ROI_V2_BASELINE;
+}
+
+export const LIVE_BASELINE = parseLiveBaseline();
+
+/**
  * Track segmentation for reporting commands (4-track A/B).
  * 'combined' shows per-track sections; the others restrict to one track.
  */

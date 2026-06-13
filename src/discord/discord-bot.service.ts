@@ -15,7 +15,7 @@ import { getValueBets } from './commands/value-bets';
 import type { ValueDetectionService } from '@/value-detection';
 import { aggregateSettledIdeas, oddsToNumber } from '@/value-detection';
 import type { Queue as BullmqQueue } from 'bullmq';
-import { ROI_V2_BASELINE, MODEL_OPTION_CHOICES } from './reporting-config';
+import { LIVE_BASELINE, MODEL_OPTION_CHOICES } from './reporting-config';
 import { loadHistoricalSeed } from './historical-seed';
 
 const SLASH_COMMANDS = [
@@ -302,7 +302,7 @@ export class DiscordBotService {
       const settledRows = await this._prisma.valueOpportunity.findMany({
         where: {
           betResult: { not: null },
-          settledAt: { gte: ROI_V2_BASELINE },
+          settledAt: { gte: LIVE_BASELINE },
           isShadow: false,
           match: { sport: { category: 'TRADITIONAL' as const } },
         },
