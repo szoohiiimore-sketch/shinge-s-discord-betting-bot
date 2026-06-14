@@ -4,8 +4,8 @@ export type { ValueDetectionResult, ValueDetectionDecision, ValueOpportunityInse
 export { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from './legacy-detector-core';
 export type { LegacyDetectorConfig } from './legacy-detector-core';
 export { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct, LOW_ODDS_MIN, LOW_ODDS_MAX } from './low-odds-config';
-export { legacyConfidence } from './legacy-confidence';
-export type { LegacyConfidence, LegacyConfidenceInput } from './legacy-confidence';
+export { alertConfidence, alertConfidenceFlags, isFlatLine, isExtremeOdds } from './alert-confidence';
+export type { AlertConfidence, AlertConfidenceInput } from './alert-confidence';
 export {
   bookmakerFamily,
   isExchange,

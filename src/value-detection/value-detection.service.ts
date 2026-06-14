@@ -6,7 +6,7 @@ import type { DetectorInputRow, PricePoint, DetectorCandidate } from './detector
 import { detectFromBatch, referenceMovementPct, PRODUCTION_DETECTOR_CONFIG } from './detector-core';
 import { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from './legacy-detector-core';
 import { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct } from './low-odds-config';
-import { legacyConfidence } from './legacy-confidence';
+import { alertConfidence } from './alert-confidence';
 
 interface SnapshotRow {
   matchId: string;
@@ -374,17 +374,11 @@ export class ValueDetectionService {
               .map(s => s.bookmaker),
           )];
           const move6h = movement(candidate.outcome, candidate.bookmakerOdds, 6);
-          const confidence = legacyConfidence({
-            consensusCount: consensusBooks.length,
-            move6hPct: move6h,
-            edgePct: candidate.edgePercentage,
-          });
 
           this._decision('DETECTED', {
             model: track, matchId, outcome: candidate.outcome,
             edgePct: candidate.edgePercentage.toFixed(2),
             pinnacleOdds: candidate.bookmakerOdds, fairOdds: candidate.fairOdds.toFixed(4),
-            confidence,
           });
           if (track === 'LEGACY') legacyDetected++;
           else lowOddsDetected++;
@@ -404,14 +398,24 @@ export class ValueDetectionService {
             pinnacleMove6h: move6h,
             pinnacleMove24h: movement(candidate.outcome, candidate.bookmakerOdds, 24),
             model: track,
-            confidence,
           });
         }
       }
     }
 
     if (toInsert.length > 0) {
-      await this._repository.insertMany(toInsert);
+      // Authoritative confidence grade — applied uniformly to EVERY track from
+      // realized-validated signals only (6h line flatness + odds range). Replaces
+      // the retired legacy A/B/C grade. Annotation only: detection, thresholds,
+      // and model selection are unchanged. See NEXT_GEN_CONFIDENCE_FRAMEWORK_AUDIT.md.
+      const graded = toInsert.map(row => ({
+        ...row,
+        confidence: alertConfidence({
+          bookmakerOdds: Number(row.bookmakerOdds),
+          move6hPct: row.pinnacleMove6h ?? null,
+        }),
+      }));
+      await this._repository.insertMany(graded);
     }
 
     const durationMs = Date.now() - startedAt;

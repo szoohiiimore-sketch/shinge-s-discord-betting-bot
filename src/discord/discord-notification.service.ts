@@ -10,6 +10,7 @@ import {
   corroborationCount,
   aggregateSettledIdeas,
   oddsToNumber,
+  alertConfidenceFlags,
 } from '@/value-detection';
 import { LIVE_BASELINE } from './reporting-config';
 
@@ -194,9 +195,16 @@ export function formatIdeaAlert(members: readonly PendingAlertRow[]): string | n
     `📊 Books agreeing: ${k} ${k === 1 ? 'family' : 'families'}${movementSuffix(headline.pinnacleMove6h)}`,
   );
 
-  // Legacy-family confidence grade (ranking/reporting only, never suppression).
+  // Quality grade — realized-outcome based (6h line movement + odds range), all
+  // models. Ranking/presentation only; never affects detection or thresholds.
+  // A = no red flags · B = one · C = two (flat line and/or extreme odds).
   if (headline.confidence) {
-    lines.push(`🔠 Confidence: **${headline.confidence}**`);
+    const move6h = headline.pinnacleMove6h == null ? null : oddsToNumber(headline.pinnacleMove6h);
+    const flags = alertConfidenceFlags({ bookmakerOdds: oddsToNumber(headline.bookmakerOdds), move6hPct: move6h });
+    const meaning = flags.length === 0
+      ? 'no red flags'
+      : `red flag${flags.length > 1 ? 's' : ''}: ${flags.join(', ')}`;
+    lines.push(`🏅 Quality: **${headline.confidence}** — ${meaning}`);
   }
 
   return lines.join('\n');
@@ -243,6 +251,7 @@ function formatOutcome(opp: SettledOpportunityNotification): string {
   const label = opp.betResult === 'WIN' ? 'WIN' : opp.betResult === 'LOSS' ? 'LOSS' : 'VOID';
   const lines = [
     `${icon} **${label}** — ${displaySport(opp.sport)} | ${opp.homeTeamName} vs ${opp.awayTeamName}`,
+    `**${MODEL_TAG[opp.model] ?? `(${opp.model})`}**`,
     `Outcome: ${opp.outcome} | Odds: ${opp.bookmakerOdds.toFixed(2)} | Edge: +${opp.edgePercentage.toFixed(1)}% | P/L: ${displayPL(opp.profitLossUnits)}`,
     `Settled: ${displayTime(opp.settledAt)}`,
   ];
@@ -390,18 +399,38 @@ export class DiscordNotificationService {
   async notifySettledOutcomes(settled: readonly SettledOpportunityNotification[]): Promise<void> {
     if (!this._outcomesChannelId || settled.length === 0) return;
 
-    this._logger.info({ count: settled.length }, 'Sending settled outcome notifications');
+    // Idea-level: a settled idea is (model, matchId, outcome). The settlement
+    // pipeline emits one row per bookmaker/capture, so multiple rows can describe
+    // the SAME idea (same match result → identical WIN/LOSS). Collapse them to one
+    // card per idea — scored on the headline row (best non-exchange price) — using
+    // the same aggregation the daily summary and /roi already use. Models are NEVER
+    // merged: (match, outcome) under LEGACY and under PINNACLE_LED stay two ideas.
+    type Member = SettledOpportunityNotification & { createdAt: Date };
+    const members: Member[] = settled.map(s => ({ ...s, createdAt: s.settledAt }));
 
-    for (const opp of settled) {
+    const ideas: Member[] = [];
+    for (const model of new Set(members.map(m => m.model))) {
+      for (const group of groupIdeas(members.filter(m => m.model === model)).values()) {
+        const headline = selectHeadline(group);
+        if (headline) ideas.push(headline);
+      }
+    }
+
+    this._logger.info(
+      { rows: settled.length, ideas: ideas.length },
+      'Sending idea-level settled outcome notifications',
+    );
+
+    for (const idea of ideas) {
       try {
-        const content = formatOutcome(opp);
+        const content = formatOutcome(idea);
         await this._rest.post(Routes.channelMessages(this._outcomesChannelId), {
           body: { content },
         });
-        this._logger.debug({ outcome: opp.outcome, result: opp.betResult }, 'Outcome notification sent');
+        this._logger.debug({ model: idea.model, outcome: idea.outcome, result: idea.betResult }, 'Outcome notification sent');
       } catch (err) {
         this._logger.error(
-          { outcome: opp.outcome, err: (err as Error).message },
+          { model: idea.model, outcome: idea.outcome, err: (err as Error).message },
           'Outcome notification failed',
         );
       }
