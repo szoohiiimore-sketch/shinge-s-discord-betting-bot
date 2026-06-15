@@ -7,7 +7,7 @@ import { detectFromBatch, referenceMovementPct, PRODUCTION_DETECTOR_CONFIG } fro
 import { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from './legacy-detector-core';
 import { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct } from './low-odds-config';
 import { alertConfidence } from './alert-confidence';
-import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG } from './sharp-final-detector-core';
+import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG, SHARP_FINAL_V2_CONFIG } from './sharp-final-detector-core';
 
 interface SnapshotRow {
   matchId: string;
@@ -136,6 +136,9 @@ export class ValueDetectionService {
     const existingSharpKeys = new Set<string>();
     const existingSharpLowKeys = new Set<string>();
     const sharpLowOutcomes = new Map<string, Set<string>>();
+    const existingSharpV2Keys = new Set<string>();
+    const existingSharpLowV2Keys = new Set<string>();
+    const sharpLowV2Outcomes = new Map<string, Set<string>>();
 
     for (const e of existing) {
       const tripleKey = `${e.matchId}|${e.bookmaker}|${e.outcome}`;
@@ -153,6 +156,13 @@ export class ValueDetectionService {
         existingSharpLowKeys.add(tripleKey);
         let outcomes = sharpLowOutcomes.get(e.matchId);
         if (!outcomes) { outcomes = new Set(); sharpLowOutcomes.set(e.matchId, outcomes); }
+        outcomes.add(e.outcome);
+      } else if (e.model === 'SHARP_FINAL_V2') {
+        existingSharpV2Keys.add(tripleKey);
+      } else if (e.model === 'SHARP_FINAL_LOW_V2') {
+        existingSharpLowV2Keys.add(tripleKey);
+        let outcomes = sharpLowV2Outcomes.get(e.matchId);
+        if (!outcomes) { outcomes = new Set(); sharpLowV2Outcomes.set(e.matchId, outcomes); }
         outcomes.add(e.outcome);
       } else {
         // LEGACY or LOW_ODDS_LEGACY
@@ -177,7 +187,10 @@ export class ValueDetectionService {
     const LEGACY_MAIN_MIN_EDGE = LEGACY_DETECTOR_CONFIG.minEdgeThresholdPct; // 5.0
     // SHARP_FINAL — multi-source sharp consensus reference; same edge bar as Pinnacle-Led.
     const sharpConfig = { ...SHARP_FINAL_CONFIG, maxCandidateOdds: this._maxAlertOdds };
+    // SHARP_FINAL_V2 — RebelBetting-style (minSharpSources=1): same pipeline, full coverage.
+    const sharpConfigV2 = { ...SHARP_FINAL_V2_CONFIG, maxCandidateOdds: this._maxAlertOdds };
     let sharpDetected = 0;
+    let sharpV2Detected = 0;
 
     let detected = 0;
     let legacyDetected = 0;
@@ -420,65 +433,69 @@ export class ValueDetectionService {
         }
       }
 
-      // ════ SHARP_FINAL FAMILY (multi-source sharp consensus) ════
-      const sharpResult = sharpFinalDetectFromBatch(batch, sharpConfig);
-      const sharpLowCandidates: DetectorCandidate[] = [];
-      for (const candidate of sharpResult.candidates) {
-        const { bookmaker, outcome, bookmakerOdds, fairOdds, fairProbability, edgePercentage, isShadow } = candidate;
-        const key = `${matchId}|${bookmaker}|${outcome}`;
-        if (existingSharpKeys.has(key) || existingSharpLowKeys.has(key)) { skipped++; continue; }
-        if (!isShadow) {
-          existingSharpKeys.add(key);
-          this._decision('DETECTED', { matchId, bookmaker, outcome, model: 'SHARP_FINAL', edgePct: edgePercentage.toFixed(2) });
-          sharpDetected++;
-          const refPrice = sharpResult.referencePrices!.get(outcome)!;
-          toInsert.push({
-            matchId, sport, bookmaker, outcome, bookmakerOdds, fairOdds, edgePercentage,
-            consensusProbability: fairProbability,
-            consensusBookmakers: [...sharpConfig.sharpBookmakers],
-            capturedAt: latestCapturedAt, isShadow: false,
-            pinnacleMove1h: movement(outcome, refPrice, 1),
-            pinnacleMove6h: movement(outcome, refPrice, 6),
-            pinnacleMove24h: movement(outcome, refPrice, 24),
-            model: 'SHARP_FINAL',
-          });
-        } else {
-          const lowThr = pinnacleLedLowOddsThresholdPct(bookmakerOdds);
-          if (lowThr !== null && edgePercentage >= lowThr) sharpLowCandidates.push(candidate);
-        }
-      }
-      // SHARP_FINAL_LOW — strongest outcome only, one per match, contradiction guard.
-      if (sharpLowCandidates.length > 0) {
-        const strongest = sharpLowCandidates.reduce((a, b) => (b.edgePercentage > a.edgePercentage ? b : a));
-        const owned = sharpLowOutcomes.get(matchId);
-        if (owned && [...owned].some(o => o !== strongest.outcome)) {
-          this._decision('SUPPRESSED', { matchId, outcome: strongest.outcome, model: 'SHARP_FINAL_LOW', reason: 'contradicts an existing sharp-low opportunity on this match' });
-          skipped++;
-        } else {
-          for (const c of sharpLowCandidates.filter(x => x.outcome === strongest.outcome)) {
-            const key = `${matchId}|${c.bookmaker}|${c.outcome}`;
-            if (existingSharpLowKeys.has(key) || existingSharpKeys.has(key)) { skipped++; continue; }
-            existingSharpLowKeys.add(key);
-            let outs = sharpLowOutcomes.get(matchId);
-            if (!outs) { outs = new Set(); sharpLowOutcomes.set(matchId, outs); }
-            outs.add(c.outcome);
-            this._decision('DETECTED', { matchId, bookmaker: c.bookmaker, outcome: c.outcome, model: 'SHARP_FINAL_LOW', edgePct: c.edgePercentage.toFixed(2) });
-            sharpDetected++;
-            const refPrice = sharpResult.referencePrices!.get(c.outcome)!;
+      // ════ SHARP_FINAL FAMILY — v1 (consensus filter) + V2 (RebelBetting-style) ════
+      // Identical pipeline run twice with different configs/models/dedup state.
+      const runSharp = (
+        cfg: typeof sharpConfig,
+        prodModel: 'SHARP_FINAL' | 'SHARP_FINAL_V2',
+        lowModel: 'SHARP_FINAL_LOW' | 'SHARP_FINAL_LOW_V2',
+        prodKeys: Set<string>, lowKeys: Set<string>, lowOutcomes: Map<string, Set<string>>,
+        bump: () => void,
+      ): void => {
+        const res = sharpFinalDetectFromBatch(batch, cfg);
+        const lowCands: DetectorCandidate[] = [];
+        for (const candidate of res.candidates) {
+          const { bookmaker, outcome, bookmakerOdds, fairOdds, fairProbability, edgePercentage, isShadow } = candidate;
+          const key = `${matchId}|${bookmaker}|${outcome}`;
+          if (prodKeys.has(key) || lowKeys.has(key)) { skipped++; continue; }
+          if (!isShadow) {
+            prodKeys.add(key);
+            this._decision('DETECTED', { matchId, bookmaker, outcome, model: prodModel, edgePct: edgePercentage.toFixed(2) });
+            bump();
+            const refPrice = res.referencePrices!.get(outcome)!;
             toInsert.push({
-              matchId, sport, bookmaker: c.bookmaker, outcome: c.outcome,
-              bookmakerOdds: c.bookmakerOdds, fairOdds: c.fairOdds, edgePercentage: c.edgePercentage,
-              consensusProbability: c.fairProbability,
-              consensusBookmakers: [...sharpConfig.sharpBookmakers],
+              matchId, sport, bookmaker, outcome, bookmakerOdds, fairOdds, edgePercentage,
+              consensusProbability: fairProbability, consensusBookmakers: [...cfg.sharpBookmakers],
               capturedAt: latestCapturedAt, isShadow: false,
-              pinnacleMove1h: movement(c.outcome, refPrice, 1),
-              pinnacleMove6h: movement(c.outcome, refPrice, 6),
-              pinnacleMove24h: movement(c.outcome, refPrice, 24),
-              model: 'SHARP_FINAL_LOW',
+              pinnacleMove1h: movement(outcome, refPrice, 1), pinnacleMove6h: movement(outcome, refPrice, 6), pinnacleMove24h: movement(outcome, refPrice, 24),
+              model: prodModel,
             });
+          } else {
+            const lowThr = pinnacleLedLowOddsThresholdPct(bookmakerOdds);
+            if (lowThr !== null && edgePercentage >= lowThr) lowCands.push(candidate);
           }
         }
-      }
+        if (lowCands.length > 0) {
+          const strongest = lowCands.reduce((a, b) => (b.edgePercentage > a.edgePercentage ? b : a));
+          const owned = lowOutcomes.get(matchId);
+          if (owned && [...owned].some(o => o !== strongest.outcome)) {
+            this._decision('SUPPRESSED', { matchId, outcome: strongest.outcome, model: lowModel, reason: 'contradicts an existing sharp-low opportunity on this match' });
+            skipped++;
+          } else {
+            for (const c of lowCands.filter(x => x.outcome === strongest.outcome)) {
+              const key = `${matchId}|${c.bookmaker}|${c.outcome}`;
+              if (lowKeys.has(key) || prodKeys.has(key)) { skipped++; continue; }
+              lowKeys.add(key);
+              let outs = lowOutcomes.get(matchId);
+              if (!outs) { outs = new Set(); lowOutcomes.set(matchId, outs); }
+              outs.add(c.outcome);
+              this._decision('DETECTED', { matchId, bookmaker: c.bookmaker, outcome: c.outcome, model: lowModel, edgePct: c.edgePercentage.toFixed(2) });
+              bump();
+              const refPrice = res.referencePrices!.get(c.outcome)!;
+              toInsert.push({
+                matchId, sport, bookmaker: c.bookmaker, outcome: c.outcome,
+                bookmakerOdds: c.bookmakerOdds, fairOdds: c.fairOdds, edgePercentage: c.edgePercentage,
+                consensusProbability: c.fairProbability, consensusBookmakers: [...cfg.sharpBookmakers],
+                capturedAt: latestCapturedAt, isShadow: false,
+                pinnacleMove1h: movement(c.outcome, refPrice, 1), pinnacleMove6h: movement(c.outcome, refPrice, 6), pinnacleMove24h: movement(c.outcome, refPrice, 24),
+                model: lowModel,
+              });
+            }
+          }
+        }
+      };
+      runSharp(sharpConfig, 'SHARP_FINAL', 'SHARP_FINAL_LOW', existingSharpKeys, existingSharpLowKeys, sharpLowOutcomes, () => { sharpDetected++; });
+      runSharp(sharpConfigV2, 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2', existingSharpV2Keys, existingSharpLowV2Keys, sharpLowV2Outcomes, () => { sharpV2Detected++; });
     }
 
     if (toInsert.length > 0) {
@@ -505,6 +522,7 @@ export class ValueDetectionService {
       lowOddsOpportunitiesDetected: lowOddsDetected,
       shadowOpportunitiesDetected: detectedShadow,
       sharpFinalOpportunitiesDetected: sharpDetected,
+      sharpFinalV2OpportunitiesDetected: sharpV2Detected,
       opportunitiesRejected: rejected,
       opportunitiesSkipped: skipped,
       durationMs,

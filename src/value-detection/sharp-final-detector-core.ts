@@ -51,6 +51,21 @@ export const SHARP_FINAL_CONFIG: SharpFinalConfig = {
   maxConsensusOverround: 1.15,
 };
 
+/**
+ * SHARP_FINAL_V2 — the true RebelBetting-style form: identical pipeline (sharp
+ * consensus → de-vig → fair → best soft price across ALL candidate books → value),
+ * with ONE change: minSharpSources = 1. It therefore runs whenever ≥1 sharp source
+ * exists (degrading gracefully to a single-Pinnacle reference, like Pinnacle-Led)
+ * and tightens to a multi-sharp consensus when more sources are present — instead
+ * of requiring ≥2 sharps and skipping the match. This removes the coverage
+ * restriction that made the v1 backtest look ultra-selective on football-data
+ * (which carries only two sharp sources). See SHARP_FINAL_V2_REBELBETTING_AUDIT.md.
+ */
+export const SHARP_FINAL_V2_CONFIG: SharpFinalConfig = {
+  ...SHARP_FINAL_CONFIG,
+  minSharpSources: 1,
+};
+
 function median(values: readonly number[]): number {
   const s = [...values].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);

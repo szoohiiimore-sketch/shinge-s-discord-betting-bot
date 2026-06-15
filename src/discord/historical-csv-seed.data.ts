@@ -5,7 +5,7 @@
 import type { HistoricalCsvSeed } from './historical-csv-seed';
 
 export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
-  "generatedAt": "2026-06-15T11:17:16.241Z",
+  "generatedAt": "2026-06-15T11:42:57.109Z",
   "dataset": {
     "files": 149,
     "matchesTotal": 108375,
@@ -88,6 +88,30 @@ export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
       "avgEdgePct": 2.56,
       "roiPct": -13.58,
       "profitUnits": -1.63
+    },
+    "SHARP_FINAL_V2": {
+      "matchesProcessed": 101051,
+      "alerts": 414,
+      "wins": 188,
+      "losses": 226,
+      "pushes": 0,
+      "winRatePct": 45.41,
+      "avgOdds": 2.429,
+      "avgEdgePct": 6.81,
+      "roiPct": 5.91,
+      "profitUnits": 24.45
+    },
+    "SHARP_FINAL_LOW_V2": {
+      "matchesProcessed": 101051,
+      "alerts": 53,
+      "wins": 33,
+      "losses": 20,
+      "pushes": 0,
+      "winRatePct": 62.26,
+      "avgOdds": 1.726,
+      "avgEdgePct": 2.59,
+      "roiPct": 7.57,
+      "profitUnits": 4.01
     }
   },
   "modelsPrematch": {
@@ -162,6 +186,30 @@ export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
       "avgEdgePct": 2.56,
       "roiPct": -13.58,
       "profitUnits": -1.63
+    },
+    "SHARP_FINAL_V2": {
+      "matchesProcessed": 41493,
+      "alerts": 407,
+      "wins": 184,
+      "losses": 223,
+      "pushes": 0,
+      "winRatePct": 45.21,
+      "avgOdds": 2.432,
+      "avgEdgePct": 6.76,
+      "roiPct": 5.61,
+      "profitUnits": 22.82
+    },
+    "SHARP_FINAL_LOW_V2": {
+      "matchesProcessed": 41493,
+      "alerts": 53,
+      "wins": 33,
+      "losses": 20,
+      "pushes": 0,
+      "winRatePct": 62.26,
+      "avgOdds": 1.726,
+      "avgEdgePct": 2.59,
+      "roiPct": 7.57,
+      "profitUnits": 4.01
     }
   }
 };

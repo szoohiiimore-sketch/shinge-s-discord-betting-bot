@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { detectFromBatch, PRODUCTION_DETECTOR_CONFIG } from '../../src/value-detection/detector-core';
 import type { DetectorInputRow } from '../../src/value-detection/detector-core';
 import { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from '../../src/value-detection/legacy-detector-core';
-import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG } from '../../src/value-detection/sharp-final-detector-core';
+import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG, SHARP_FINAL_V2_CONFIG } from '../../src/value-detection/sharp-final-detector-core';
 import { groupIdeas, selectHeadline } from '../../src/value-detection/idea-aggregation';
 import { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct } from '../../src/value-detection/low-odds-config';
 
@@ -33,8 +33,9 @@ const LEGACY_MAIN_MIN = LEGACY_DETECTOR_CONFIG.minEdgeThresholdPct; // 5.0
 // football-data carries only TWO sharp sources (Pinnacle + Betfair Exchange); the
 // live panel has five. The CSV backtest therefore tests a 2-source SHARP_FINAL.
 const sharpCfg = { ...SHARP_FINAL_CONFIG, sharpBookmakers: ['pinnacle', 'betfair_ex_uk'], maxCandidateOdds: MAX_ODDS };
+const sharpCfgV2 = { ...SHARP_FINAL_V2_CONFIG, sharpBookmakers: ['pinnacle', 'betfair_ex_uk'], maxCandidateOdds: MAX_ODDS };
 const OUTCOMES = ['Home', 'Draw', 'Away'] as const;
-type Model = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW';
+type Model = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW' | 'SHARP_FINAL_V2' | 'SHARP_FINAL_LOW_V2';
 
 interface IdeaRow { matchId: string; outcome: string; bookmaker: string; bookmakerOdds: number; edgePercentage: number; createdAt: Date; }
 
@@ -94,7 +95,7 @@ function classifyHeader(cols: string[]): Classified[] {
 const num = (s: string | undefined): number => { const n = s ? parseFloat(s) : NaN; return Number.isFinite(n) ? n : NaN; };
 
 // ── Accumulators ─────────────────────────────────────────────────────────
-const ideas: Record<Model, IdeaRow[]> = { LEGACY: [], PINNACLE_LED: [], LOW_ODDS_LEGACY: [], LOW_ODDS_PINNACLE_LED: [], SHARP_FINAL: [], SHARP_FINAL_LOW: [] };
+const ideas: Record<Model, IdeaRow[]> = { LEGACY: [], PINNACLE_LED: [], LOW_ODDS_LEGACY: [], LOW_ODDS_PINNACLE_LED: [], SHARP_FINAL: [], SHARP_FINAL_LOW: [], SHARP_FINAL_V2: [], SHARP_FINAL_LOW_V2: [] };
 const resultByMatch = new Map<string, string>(); // matchId → 'Home'|'Draw'|'Away'
 const matchTier = new Map<string, 'prematch' | 'closing'>();
 const seenMatches = new Set<string>();
@@ -122,12 +123,11 @@ function pushPinnacleFamily(matchId: string, batch: DetectorInputRow[], now: Dat
   if (best) ideas.LOW_ODDS_PINNACLE_LED.push({ matchId, outcome: best.c.outcome, bookmaker: best.c.bookmaker, bookmakerOdds: best.c.bookmakerOdds, edgePercentage: best.c.edgePercentage, createdAt: now });
 }
 
-function pushSharpFamily(matchId: string, batch: DetectorInputRow[], now: Date): void {
-  const r = sharpFinalDetectFromBatch(batch, sharpCfg);
+function pushSharpVariant(matchId: string, batch: DetectorInputRow[], now: Date, cfg: typeof sharpCfg, prod: Model, low: Model): void {
+  const r = sharpFinalDetectFromBatch(batch, cfg);
   for (const c of r.candidates) {
-    if (!c.isShadow) ideas.SHARP_FINAL.push({ matchId, outcome: c.outcome, bookmaker: c.bookmaker, bookmakerOdds: c.bookmakerOdds, edgePercentage: c.edgePercentage, createdAt: now });
+    if (!c.isShadow) ideas[prod].push({ matchId, outcome: c.outcome, bookmaker: c.bookmaker, bookmakerOdds: c.bookmakerOdds, edgePercentage: c.edgePercentage, createdAt: now });
   }
-  // SHARP_FINAL_LOW = shadow band (2–3%) in the low-odds buckets; strongest per match.
   let best: (typeof r.candidates)[number] | null = null;
   for (const c of r.candidates) {
     if (!c.isShadow || !isLowOdds(c.bookmakerOdds)) continue;
@@ -135,7 +135,11 @@ function pushSharpFamily(matchId: string, batch: DetectorInputRow[], now: Date):
     if (thr === null || c.edgePercentage < thr) continue;
     if (!best || c.edgePercentage > best.edgePercentage) best = c;
   }
-  if (best) ideas.SHARP_FINAL_LOW.push({ matchId, outcome: best.outcome, bookmaker: best.bookmaker, bookmakerOdds: best.bookmakerOdds, edgePercentage: best.edgePercentage, createdAt: now });
+  if (best) ideas[low].push({ matchId, outcome: best.outcome, bookmaker: best.bookmaker, bookmakerOdds: best.bookmakerOdds, edgePercentage: best.edgePercentage, createdAt: now });
+}
+function pushSharpFamily(matchId: string, batch: DetectorInputRow[], now: Date): void {
+  pushSharpVariant(matchId, batch, now, sharpCfg, 'SHARP_FINAL', 'SHARP_FINAL_LOW');
+  pushSharpVariant(matchId, batch, now, sharpCfgV2, 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2');
 }
 
 function pushLegacyFamily(matchId: string, batch: DetectorInputRow[], now: Date): void {
@@ -268,6 +272,8 @@ const seed = {
     LOW_ODDS_PINNACLE_LED: statsFor('LOW_ODDS_PINNACLE_LED', 'all'),
     SHARP_FINAL: statsFor('SHARP_FINAL', 'all'),
     SHARP_FINAL_LOW: statsFor('SHARP_FINAL_LOW', 'all'),
+    SHARP_FINAL_V2: statsFor('SHARP_FINAL_V2', 'all'),
+    SHARP_FINAL_LOW_V2: statsFor('SHARP_FINAL_LOW_V2', 'all'),
   },
   modelsPrematch: {
     LEGACY: statsFor('LEGACY', 'prematch'),
@@ -276,6 +282,8 @@ const seed = {
     LOW_ODDS_PINNACLE_LED: statsFor('LOW_ODDS_PINNACLE_LED', 'prematch'),
     SHARP_FINAL: statsFor('SHARP_FINAL', 'prematch'),
     SHARP_FINAL_LOW: statsFor('SHARP_FINAL_LOW', 'prematch'),
+    SHARP_FINAL_V2: statsFor('SHARP_FINAL_V2', 'prematch'),
+    SHARP_FINAL_LOW_V2: statsFor('SHARP_FINAL_LOW_V2', 'prematch'),
   },
 };
 

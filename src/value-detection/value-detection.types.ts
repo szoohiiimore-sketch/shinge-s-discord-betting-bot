@@ -9,7 +9,7 @@ export type ValueDetectionDecision =
   | 'SUPPRESSED';
 
 /** Which live detection track produced an opportunity (4-track A/B). */
-export type DetectionModelName = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW';
+export type DetectionModelName = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW' | 'SHARP_FINAL_V2' | 'SHARP_FINAL_LOW_V2';
 
 export interface ValueDetectionResult {
   readonly matchesAnalyzed: number;

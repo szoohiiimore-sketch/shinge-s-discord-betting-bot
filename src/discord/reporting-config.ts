@@ -38,9 +38,9 @@ export const LIVE_BASELINE = parseLiveBaseline();
  * Track segmentation for reporting commands (4-track A/B).
  * 'combined' shows per-track sections; the others restrict to one track.
  */
-export type ModelFilter = 'combined' | 'legacy' | 'pinnacle' | 'low-odds-legacy' | 'low-odds-pinnacle' | 'sharp' | 'sharp-low';
+export type ModelFilter = 'combined' | 'legacy' | 'pinnacle' | 'low-odds-legacy' | 'low-odds-pinnacle' | 'sharp' | 'sharp-low' | 'sharp-v2' | 'sharp-low-v2';
 
-export type DetectionModelValue = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW';
+export type DetectionModelValue = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW' | 'SHARP_FINAL_V2' | 'SHARP_FINAL_LOW_V2';
 
 /** Tracks a filter selects, in display order. */
 export function modelsFor(filter: ModelFilter): readonly DetectionModelValue[] {
@@ -50,7 +50,9 @@ export function modelsFor(filter: ModelFilter): readonly DetectionModelValue[] {
   if (filter === 'low-odds-pinnacle') return ['LOW_ODDS_PINNACLE_LED'];
   if (filter === 'sharp') return ['SHARP_FINAL'];
   if (filter === 'sharp-low') return ['SHARP_FINAL_LOW'];
-  return ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW'];
+  if (filter === 'sharp-v2') return ['SHARP_FINAL_V2'];
+  if (filter === 'sharp-low-v2') return ['SHARP_FINAL_LOW_V2'];
+  return ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW', 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2'];
 }
 
 const MODEL_DISPLAY: Record<DetectionModelValue, string> = {
@@ -60,6 +62,8 @@ const MODEL_DISPLAY: Record<DetectionModelValue, string> = {
   LOW_ODDS_PINNACLE_LED: 'LOW ODDS EXPERIMENTAL PINNACLE-LED SYSTEM',
   SHARP_FINAL: 'SHARP FINAL (MULTI-SOURCE CONSENSUS)',
   SHARP_FINAL_LOW: 'SHARP FINAL LOW ODDS',
+  SHARP_FINAL_V2: 'SHARP FINAL V2 (REBELBETTING-STYLE)',
+  SHARP_FINAL_LOW_V2: 'SHARP FINAL V2 LOW ODDS',
 };
 
 export function modelDisplay(model: DetectionModelValue): string {
@@ -75,4 +79,6 @@ export const MODEL_OPTION_CHOICES = [
   { name: 'Low Odds Pinnacle-led only', value: 'low-odds-pinnacle' },
   { name: 'Sharp Final only', value: 'sharp' },
   { name: 'Sharp Final Low only', value: 'sharp-low' },
+  { name: 'Sharp Final V2 only', value: 'sharp-v2' },
+  { name: 'Sharp Final V2 Low only', value: 'sharp-low-v2' },
 ];

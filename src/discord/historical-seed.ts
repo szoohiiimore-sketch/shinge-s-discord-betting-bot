@@ -150,6 +150,8 @@ export async function loadHistoricalSeed(prisma: PrismaClient): Promise<Historic
     // the football-data CSV replay (HISTORICAL_CSV_SEED) and forward live results.
     SHARP_FINAL: EMPTY_SEED,
     SHARP_FINAL_LOW: EMPTY_SEED,
+    SHARP_FINAL_V2: EMPTY_SEED,
+    SHARP_FINAL_LOW_V2: EMPTY_SEED,
   };
   return cache;
 }

@@ -100,6 +100,8 @@ const MODEL_TAG: Record<string, string> = {
   LOW_ODDS_PINNACLE_LED: '(LOW ODDS EXPERIMENTAL PINNACLE-LED SYSTEM)',
   SHARP_FINAL: '(SHARP FINAL — MULTI-SOURCE CONSENSUS)',
   SHARP_FINAL_LOW: '(SHARP FINAL LOW ODDS)',
+  SHARP_FINAL_V2: '(SHARP FINAL V2 — REBELBETTING-STYLE)',
+  SHARP_FINAL_LOW_V2: '(SHARP FINAL V2 LOW ODDS)',
 };
 
 /** LOW ODDS tracks route to the dedicated channel, never the main one. */
@@ -480,7 +482,7 @@ export class DiscordNotificationService {
 
     // Per-model sections — idea-level accounting is computed strictly within a
     // model (ideas never merge across models in the dual-model A/B).
-    for (const model of ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW'] as const) {
+    for (const model of ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW', 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2'] as const) {
       const modelRows = settledRows.filter(r => r.model === model);
       if (modelRows.length === 0) continue;
       const ideas = aggregateSettledIdeas(modelRows).map(i => i.headline);
