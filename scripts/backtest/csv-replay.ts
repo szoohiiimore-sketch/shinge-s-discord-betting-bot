@@ -35,7 +35,7 @@ const LEGACY_MAIN_MIN = LEGACY_DETECTOR_CONFIG.minEdgeThresholdPct; // 5.0
 const sharpCfg = { ...SHARP_FINAL_CONFIG, sharpBookmakers: ['pinnacle', 'betfair_ex_uk'], maxCandidateOdds: MAX_ODDS };
 const sharpCfgV2 = { ...SHARP_FINAL_V2_CONFIG, sharpBookmakers: ['pinnacle', 'betfair_ex_uk'], maxCandidateOdds: MAX_ODDS };
 const OUTCOMES = ['Home', 'Draw', 'Away'] as const;
-type Model = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW' | 'SHARP_FINAL_V2' | 'SHARP_FINAL_LOW_V2';
+type Model = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW' | 'SHARP_FINAL_V2' | 'SHARP_FINAL_LOW_V2' | 'LEGACY_QUALITY';
 
 interface IdeaRow { matchId: string; outcome: string; bookmaker: string; bookmakerOdds: number; edgePercentage: number; createdAt: Date; }
 
@@ -95,7 +95,7 @@ function classifyHeader(cols: string[]): Classified[] {
 const num = (s: string | undefined): number => { const n = s ? parseFloat(s) : NaN; return Number.isFinite(n) ? n : NaN; };
 
 // ── Accumulators ─────────────────────────────────────────────────────────
-const ideas: Record<Model, IdeaRow[]> = { LEGACY: [], PINNACLE_LED: [], LOW_ODDS_LEGACY: [], LOW_ODDS_PINNACLE_LED: [], SHARP_FINAL: [], SHARP_FINAL_LOW: [], SHARP_FINAL_V2: [], SHARP_FINAL_LOW_V2: [] };
+const ideas: Record<Model, IdeaRow[]> = { LEGACY: [], PINNACLE_LED: [], LOW_ODDS_LEGACY: [], LOW_ODDS_PINNACLE_LED: [], SHARP_FINAL: [], SHARP_FINAL_LOW: [], SHARP_FINAL_V2: [], SHARP_FINAL_LOW_V2: [], LEGACY_QUALITY: [] };
 const resultByMatch = new Map<string, string>(); // matchId → 'Home'|'Draw'|'Away'
 const matchTier = new Map<string, 'prematch' | 'closing'>();
 const seenMatches = new Set<string>();
@@ -155,7 +155,13 @@ function pushLegacyFamily(matchId: string, batch: DetectorInputRow[], now: Date)
     }
     if (track && (!pick || c.edgePercentage > pick.c.edgePercentage)) pick = { c, track };
   }
-  if (pick) ideas[pick.track].push({ matchId, outcome: pick.c.outcome, bookmaker: pick.c.bookmaker, bookmakerOdds: pick.c.bookmakerOdds, edgePercentage: pick.c.edgePercentage, createdAt: now });
+  if (pick) {
+    ideas[pick.track].push({ matchId, outcome: pick.c.outcome, bookmaker: pick.c.bookmaker, bookmakerOdds: pick.c.bookmakerOdds, edgePercentage: pick.c.edgePercentage, createdAt: now });
+    // LEGACY_QUALITY = non-flat legacy main-tier. football-data has no time-series,
+    // so move6h is always null → never flat → LEGACY_QUALITY == LEGACY here (the
+    // movement filter is only testable on live data). Documented in the audit.
+    if (pick.track === 'LEGACY') ideas.LEGACY_QUALITY.push({ matchId, outcome: pick.c.outcome, bookmaker: pick.c.bookmaker, bookmakerOdds: pick.c.bookmakerOdds, edgePercentage: pick.c.edgePercentage, createdAt: now });
+  }
 }
 
 function processRow(cols: string[], cl: Classified[], leagueLabel: string, dateStr: string, home: string, away: string, resLetter: string, seasonOverride: number | null): void {
@@ -274,6 +280,7 @@ const seed = {
     SHARP_FINAL_LOW: statsFor('SHARP_FINAL_LOW', 'all'),
     SHARP_FINAL_V2: statsFor('SHARP_FINAL_V2', 'all'),
     SHARP_FINAL_LOW_V2: statsFor('SHARP_FINAL_LOW_V2', 'all'),
+    LEGACY_QUALITY: statsFor('LEGACY_QUALITY', 'all'),
   },
   modelsPrematch: {
     LEGACY: statsFor('LEGACY', 'prematch'),
@@ -284,6 +291,7 @@ const seed = {
     SHARP_FINAL_LOW: statsFor('SHARP_FINAL_LOW', 'prematch'),
     SHARP_FINAL_V2: statsFor('SHARP_FINAL_V2', 'prematch'),
     SHARP_FINAL_LOW_V2: statsFor('SHARP_FINAL_LOW_V2', 'prematch'),
+    LEGACY_QUALITY: statsFor('LEGACY_QUALITY', 'prematch'),
   },
 };
 

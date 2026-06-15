@@ -5,7 +5,7 @@
 import type { HistoricalCsvSeed } from './historical-csv-seed';
 
 export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
-  "generatedAt": "2026-06-15T11:42:57.109Z",
+  "generatedAt": "2026-06-15T21:13:28.208Z",
   "dataset": {
     "files": 149,
     "matchesTotal": 108375,
@@ -112,6 +112,18 @@ export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
       "avgEdgePct": 2.59,
       "roiPct": 7.57,
       "profitUnits": 4.01
+    },
+    "LEGACY_QUALITY": {
+      "matchesProcessed": 101051,
+      "alerts": 5500,
+      "wins": 2081,
+      "losses": 3419,
+      "pushes": 0,
+      "winRatePct": 37.84,
+      "avgOdds": 2.531,
+      "avgEdgePct": 7.24,
+      "roiPct": -6,
+      "profitUnits": -329.82
     }
   },
   "modelsPrematch": {
@@ -210,6 +222,18 @@ export const HISTORICAL_CSV_SEED: HistoricalCsvSeed = {
       "avgEdgePct": 2.59,
       "roiPct": 7.57,
       "profitUnits": 4.01
+    },
+    "LEGACY_QUALITY": {
+      "matchesProcessed": 41493,
+      "alerts": 5468,
+      "wins": 2069,
+      "losses": 3399,
+      "pushes": 0,
+      "winRatePct": 37.84,
+      "avgOdds": 2.532,
+      "avgEdgePct": 7.23,
+      "roiPct": -5.93,
+      "profitUnits": -324.43
     }
   }
 };

@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Logger } from '@/lib/logger';
 import { aggregateSettledIdeas } from '@/value-detection';
-import { LIVE_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
+import { LIVE_BASELINE, modelsFor, modelDisplay, isShadowModel, alertRouteForModel } from '../reporting-config';
 import type { ModelFilter } from '../reporting-config';
 import { loadHistoricalSeed } from '../historical-seed';
 import { HISTORICAL_CSV_SEED } from '../historical-csv-seed';
@@ -97,9 +97,12 @@ export async function getRoiStats(
     // (no historical seed, no live settlements, AND no CSV replay history).
     if (combSettled === 0 && csv.alerts === 0 && model === 'combined') continue;
 
+    const status = isShadowModel(m)
+      ? '🌑 SHADOW (data + ROI only, no alerts)'
+      : `🟢 ACTIVE → ${alertRouteForModel(m) === 'low-odds' ? '#bet-alerts-lower-odds' : '#bet-alerts'}`;
     lines.push(
       '',
-      `**${modelDisplay(m)}**`,
+      `**${modelDisplay(m)}** — ${status}`,
       `**Historical:** ${h.settledIdeas} ideas (${h.wins}W/${h.losses}L) | Win ${pct(h.winRatePct)} | P&L ${fmt(h.profitUnits)} | ROI **${pct(h.roiPct)}**`,
       liveSettled > 0
         ? `**Live:** ${liveSettled} ideas (${wins}W/${losses}L/${pushes}P, from ${modelRows.length} rows) | Win ${pct(liveWinRate)} | P&L ${fmt(livePnl)} | ROI **${pct(liveRoi)}**`

@@ -6,7 +6,7 @@ import type { DetectorInputRow, PricePoint, DetectorCandidate } from './detector
 import { detectFromBatch, referenceMovementPct, PRODUCTION_DETECTOR_CONFIG } from './detector-core';
 import { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from './legacy-detector-core';
 import { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct } from './low-odds-config';
-import { alertConfidence } from './alert-confidence';
+import { alertConfidence, isFlatLine } from './alert-confidence';
 import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG, SHARP_FINAL_V2_CONFIG } from './sharp-final-detector-core';
 
 interface SnapshotRow {
@@ -406,8 +406,15 @@ export class ValueDetectionService {
           )];
           const move6h = movement(candidate.outcome, candidate.bookmakerOdds, 6);
 
+          // LEGACY QUALITY split (evidence: flat 6h-movement legacy realized −43.9%,
+          // CI [−82.6,−5.2], the only realized-negative class with a CI excluding zero;
+          // see LEGACY_QUALITY_IMPROVEMENT_AUDIT / PORTFOLIO_POSTMORTEM). Non-flat legacy
+          // main-tier alerts → LEGACY_QUALITY (active); flat ones → LEGACY (shadow).
+          const effectiveModel: 'LEGACY' | 'LEGACY_QUALITY' | 'LOW_ODDS_LEGACY' =
+            track === 'LEGACY' ? (isFlatLine(move6h) ? 'LEGACY' : 'LEGACY_QUALITY') : track;
+
           this._decision('DETECTED', {
-            model: track, matchId, outcome: candidate.outcome,
+            model: effectiveModel, matchId, outcome: candidate.outcome,
             edgePct: candidate.edgePercentage.toFixed(2),
             pinnacleOdds: candidate.bookmakerOdds, fairOdds: candidate.fairOdds.toFixed(4),
           });
@@ -428,7 +435,7 @@ export class ValueDetectionService {
             pinnacleMove1h: movement(candidate.outcome, candidate.bookmakerOdds, 1),
             pinnacleMove6h: move6h,
             pinnacleMove24h: movement(candidate.outcome, candidate.bookmakerOdds, 24),
-            model: track,
+            model: effectiveModel,
           });
         }
       }

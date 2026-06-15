@@ -125,6 +125,7 @@ enum DetectionModel {
   SHARP_FINAL_LOW
   SHARP_FINAL_V2
   SHARP_FINAL_LOW_V2
+  LEGACY_QUALITY
 }
 
 // ──────────────────────────────────────────────

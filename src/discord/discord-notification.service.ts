@@ -12,7 +12,7 @@ import {
   oddsToNumber,
   alertConfidenceFlags,
 } from '@/value-detection';
-import { LIVE_BASELINE } from './reporting-config';
+import { LIVE_BASELINE, alertRouteForModel } from './reporting-config';
 
 export interface DiscordNotificationConfig {
   readonly token: string;
@@ -102,12 +102,8 @@ const MODEL_TAG: Record<string, string> = {
   SHARP_FINAL_LOW: '(SHARP FINAL LOW ODDS)',
   SHARP_FINAL_V2: '(SHARP FINAL V2 — REBELBETTING-STYLE)',
   SHARP_FINAL_LOW_V2: '(SHARP FINAL V2 LOW ODDS)',
+  LEGACY_QUALITY: '(LEGACY QUALITY)',
 };
-
-/** LOW ODDS tracks route to the dedicated channel, never the main one. */
-function isLowOddsModel(model: string): boolean {
-  return model === 'LOW_ODDS_LEGACY' || model === 'LOW_ODDS_PINNACLE_LED';
-}
 
 /** One pending ValueOpportunity row with its match relation, as loaded for alerting. */
 export interface PendingAlertRow {
@@ -354,9 +350,17 @@ export class DiscordNotificationService {
             ? formatUpgradeAlert(members, alerted)
             : formatIdeaAlert(members);
 
-          // Channel routing: LOW ODDS tracks go ONLY to #bet-alert-lower-odds.
+          // Channel routing (single source of truth: MODEL_ROUTE).
+          //   main     → #bet-alerts          (SHARP_FINAL_V2, LEGACY_QUALITY)
+          //   low-odds → #bet-alerts-lower-odds (SHARP_FINAL_LOW_V2, LOW_ODDS_LEGACY)
+          //   shadow   → stamped, NEVER posted  (PINNACLE_LED, LOW_ODDS_PINNACLE_LED,
+          //                                       SHARP_FINAL/LOW v1, raw LEGACY)
+          const route = alertRouteForModel(model);
           let channelId = this._channelId;
-          if (isLowOddsModel(model)) {
+          if (route === 'shadow') {
+            if (content) this._logger.debug({ idea: key, model }, 'Shadow model — row stamped, NO production alert (ROI/data tracking unaffected)');
+            content = null; // shadow: collect data + ROI, never send a betting alert
+          } else if (route === 'low-odds') {
             if (this._lowOddsChannelId) {
               channelId = this._lowOddsChannelId;
             } else {
@@ -482,7 +486,7 @@ export class DiscordNotificationService {
 
     // Per-model sections — idea-level accounting is computed strictly within a
     // model (ideas never merge across models in the dual-model A/B).
-    for (const model of ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW', 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2'] as const) {
+    for (const model of ['PINNACLE_LED', 'LEGACY', 'LEGACY_QUALITY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW', 'SHARP_FINAL_V2', 'SHARP_FINAL_LOW_V2'] as const) {
       const modelRows = settledRows.filter(r => r.model === model);
       if (modelRows.length === 0) continue;
       const ideas = aggregateSettledIdeas(modelRows).map(i => i.headline);
