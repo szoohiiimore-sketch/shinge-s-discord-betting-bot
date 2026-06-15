@@ -121,6 +121,8 @@ enum DetectionModel {
   PINNACLE_LED
   LOW_ODDS_LEGACY
   LOW_ODDS_PINNACLE_LED
+  SHARP_FINAL
+  SHARP_FINAL_LOW
 }
 
 // ──────────────────────────────────────────────

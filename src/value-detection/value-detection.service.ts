@@ -7,6 +7,7 @@ import { detectFromBatch, referenceMovementPct, PRODUCTION_DETECTOR_CONFIG } fro
 import { legacyDetectFromBatch, LEGACY_DETECTOR_CONFIG } from './legacy-detector-core';
 import { isLowOdds, pinnacleLedLowOddsThresholdPct, legacyLowOddsThresholdPct } from './low-odds-config';
 import { alertConfidence } from './alert-confidence';
+import { sharpFinalDetectFromBatch, SHARP_FINAL_CONFIG } from './sharp-final-detector-core';
 
 interface SnapshotRow {
   matchId: string;
@@ -129,6 +130,13 @@ export class ValueDetectionService {
     const legacyOwner = new Map<string, string>(); // match|outcome → owning model
     const legacyMatchOutcomes = new Map<string, Set<string>>(); // matchId → outcomes
 
+    // ── SHARP_FINAL family state: per (match, bookmaker, outcome) ──
+    // Independent of the pinnacle/legacy families (additive new model). Permanent
+    // per-triple dedup; SHARP_FINAL_LOW also keeps a per-match outcome registry.
+    const existingSharpKeys = new Set<string>();
+    const existingSharpLowKeys = new Set<string>();
+    const sharpLowOutcomes = new Map<string, Set<string>>();
+
     for (const e of existing) {
       const tripleKey = `${e.matchId}|${e.bookmaker}|${e.outcome}`;
       if (e.model === 'PINNACLE_LED') {
@@ -138,6 +146,13 @@ export class ValueDetectionService {
         existingLowOddsPinnacleKeys.add(tripleKey);
         let outcomes = lowOddsPinnacleOutcomes.get(e.matchId);
         if (!outcomes) { outcomes = new Set(); lowOddsPinnacleOutcomes.set(e.matchId, outcomes); }
+        outcomes.add(e.outcome);
+      } else if (e.model === 'SHARP_FINAL') {
+        existingSharpKeys.add(tripleKey);
+      } else if (e.model === 'SHARP_FINAL_LOW') {
+        existingSharpLowKeys.add(tripleKey);
+        let outcomes = sharpLowOutcomes.get(e.matchId);
+        if (!outcomes) { outcomes = new Set(); sharpLowOutcomes.set(e.matchId, outcomes); }
         outcomes.add(e.outcome);
       } else {
         // LEGACY or LOW_ODDS_LEGACY
@@ -160,6 +175,9 @@ export class ValueDetectionService {
     // semantics are unchanged: only >=5% candidates enter the LEGACY track.
     const legacyConfig = { ...LEGACY_DETECTOR_CONFIG, minEdgeThresholdPct: 3.0, maxCandidateOdds: this._maxAlertOdds };
     const LEGACY_MAIN_MIN_EDGE = LEGACY_DETECTOR_CONFIG.minEdgeThresholdPct; // 5.0
+    // SHARP_FINAL — multi-source sharp consensus reference; same edge bar as Pinnacle-Led.
+    const sharpConfig = { ...SHARP_FINAL_CONFIG, maxCandidateOdds: this._maxAlertOdds };
+    let sharpDetected = 0;
 
     let detected = 0;
     let legacyDetected = 0;
@@ -401,6 +419,66 @@ export class ValueDetectionService {
           });
         }
       }
+
+      // ════ SHARP_FINAL FAMILY (multi-source sharp consensus) ════
+      const sharpResult = sharpFinalDetectFromBatch(batch, sharpConfig);
+      const sharpLowCandidates: DetectorCandidate[] = [];
+      for (const candidate of sharpResult.candidates) {
+        const { bookmaker, outcome, bookmakerOdds, fairOdds, fairProbability, edgePercentage, isShadow } = candidate;
+        const key = `${matchId}|${bookmaker}|${outcome}`;
+        if (existingSharpKeys.has(key) || existingSharpLowKeys.has(key)) { skipped++; continue; }
+        if (!isShadow) {
+          existingSharpKeys.add(key);
+          this._decision('DETECTED', { matchId, bookmaker, outcome, model: 'SHARP_FINAL', edgePct: edgePercentage.toFixed(2) });
+          sharpDetected++;
+          const refPrice = sharpResult.referencePrices!.get(outcome)!;
+          toInsert.push({
+            matchId, sport, bookmaker, outcome, bookmakerOdds, fairOdds, edgePercentage,
+            consensusProbability: fairProbability,
+            consensusBookmakers: [...sharpConfig.sharpBookmakers],
+            capturedAt: latestCapturedAt, isShadow: false,
+            pinnacleMove1h: movement(outcome, refPrice, 1),
+            pinnacleMove6h: movement(outcome, refPrice, 6),
+            pinnacleMove24h: movement(outcome, refPrice, 24),
+            model: 'SHARP_FINAL',
+          });
+        } else {
+          const lowThr = pinnacleLedLowOddsThresholdPct(bookmakerOdds);
+          if (lowThr !== null && edgePercentage >= lowThr) sharpLowCandidates.push(candidate);
+        }
+      }
+      // SHARP_FINAL_LOW — strongest outcome only, one per match, contradiction guard.
+      if (sharpLowCandidates.length > 0) {
+        const strongest = sharpLowCandidates.reduce((a, b) => (b.edgePercentage > a.edgePercentage ? b : a));
+        const owned = sharpLowOutcomes.get(matchId);
+        if (owned && [...owned].some(o => o !== strongest.outcome)) {
+          this._decision('SUPPRESSED', { matchId, outcome: strongest.outcome, model: 'SHARP_FINAL_LOW', reason: 'contradicts an existing sharp-low opportunity on this match' });
+          skipped++;
+        } else {
+          for (const c of sharpLowCandidates.filter(x => x.outcome === strongest.outcome)) {
+            const key = `${matchId}|${c.bookmaker}|${c.outcome}`;
+            if (existingSharpLowKeys.has(key) || existingSharpKeys.has(key)) { skipped++; continue; }
+            existingSharpLowKeys.add(key);
+            let outs = sharpLowOutcomes.get(matchId);
+            if (!outs) { outs = new Set(); sharpLowOutcomes.set(matchId, outs); }
+            outs.add(c.outcome);
+            this._decision('DETECTED', { matchId, bookmaker: c.bookmaker, outcome: c.outcome, model: 'SHARP_FINAL_LOW', edgePct: c.edgePercentage.toFixed(2) });
+            sharpDetected++;
+            const refPrice = sharpResult.referencePrices!.get(c.outcome)!;
+            toInsert.push({
+              matchId, sport, bookmaker: c.bookmaker, outcome: c.outcome,
+              bookmakerOdds: c.bookmakerOdds, fairOdds: c.fairOdds, edgePercentage: c.edgePercentage,
+              consensusProbability: c.fairProbability,
+              consensusBookmakers: [...sharpConfig.sharpBookmakers],
+              capturedAt: latestCapturedAt, isShadow: false,
+              pinnacleMove1h: movement(c.outcome, refPrice, 1),
+              pinnacleMove6h: movement(c.outcome, refPrice, 6),
+              pinnacleMove24h: movement(c.outcome, refPrice, 24),
+              model: 'SHARP_FINAL_LOW',
+            });
+          }
+        }
+      }
     }
 
     if (toInsert.length > 0) {
@@ -426,6 +504,7 @@ export class ValueDetectionService {
       legacyOpportunitiesDetected: legacyDetected,
       lowOddsOpportunitiesDetected: lowOddsDetected,
       shadowOpportunitiesDetected: detectedShadow,
+      sharpFinalOpportunitiesDetected: sharpDetected,
       opportunitiesRejected: rejected,
       opportunitiesSkipped: skipped,
       durationMs,

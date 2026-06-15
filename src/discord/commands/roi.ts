@@ -4,6 +4,7 @@ import { aggregateSettledIdeas } from '@/value-detection';
 import { LIVE_BASELINE, modelsFor, modelDisplay } from '../reporting-config';
 import type { ModelFilter } from '../reporting-config';
 import { loadHistoricalSeed } from '../historical-seed';
+import { HISTORICAL_CSV_SEED } from '../historical-csv-seed';
 
 type Period = '7d' | '30d' | 'all';
 
@@ -91,7 +92,10 @@ export async function getRoiStats(
     const combRoi = combSettled > 0 ? (combPnl / combSettled) * 100 : null;
     const combWinRate = combSettled > 0 ? (combWins / combSettled) * 100 : null;
 
-    if (combSettled === 0 && model === 'combined') continue;
+    const csv = HISTORICAL_CSV_SEED.models[m];
+    // Skip a model in the combined view only when it has NO data anywhere
+    // (no historical seed, no live settlements, AND no CSV replay history).
+    if (combSettled === 0 && csv.alerts === 0 && model === 'combined') continue;
 
     lines.push(
       '',
@@ -103,6 +107,14 @@ export async function getRoiStats(
       `**Combined:** ${combSettled} ideas | Win ${pct(combWinRate)} | P&L ${fmt(combPnl)} | ROI **${pct(combRoi)}**`,
     );
 
+    // Historical CSV replay (football-data.co.uk, soccer 1X2, exact results).
+    // Kept entirely separate — never merged into Live, Historical, or Combined.
+    if (csv.alerts > 0) {
+      lines.push(
+        `**Historical CSV (Replay):** ${csv.alerts} ideas (${csv.wins}W/${csv.losses}L) | Win ${pct(csv.winRatePct)} | P&L ${fmt(csv.profitUnits)} | ROI **${pct(csv.roiPct)}** _(${csv.matchesProcessed.toLocaleString()} matches)_`,
+      );
+    }
+
     // Legacy-family confidence distribution (live rows; A/B/C — reporting only).
     const graded = ideas.filter(i => i.confidence);
     if (graded.length > 0) {
@@ -113,7 +125,12 @@ export async function getRoiStats(
     }
   }
 
-  lines.push('', '*Historical = immutable backtest seed (in-play-inferred results). Live = real settlements. Combined = both.*');
+  const ds = HISTORICAL_CSV_SEED.dataset;
+  lines.push(
+    '',
+    '*Historical = immutable backtest seed (in-play-inferred results). Live = real settlements. Combined = both.*',
+    `*Historical CSV (Replay) = football-data.co.uk soccer 1X2, exact results, separate from Live/Historical — ${ds.matchesTotal.toLocaleString()} matches, ${ds.leagues} leagues, ${ds.seasons} seasons. Pre-match fidelity; see HISTORICAL_CSV_REPLAY_SYSTEM.md.*`,
+  );
 
   return { content: lines.join('\n') };
 }

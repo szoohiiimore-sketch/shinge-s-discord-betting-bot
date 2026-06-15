@@ -38,9 +38,9 @@ export const LIVE_BASELINE = parseLiveBaseline();
  * Track segmentation for reporting commands (4-track A/B).
  * 'combined' shows per-track sections; the others restrict to one track.
  */
-export type ModelFilter = 'combined' | 'legacy' | 'pinnacle' | 'low-odds-legacy' | 'low-odds-pinnacle';
+export type ModelFilter = 'combined' | 'legacy' | 'pinnacle' | 'low-odds-legacy' | 'low-odds-pinnacle' | 'sharp' | 'sharp-low';
 
-export type DetectionModelValue = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED';
+export type DetectionModelValue = 'LEGACY' | 'PINNACLE_LED' | 'LOW_ODDS_LEGACY' | 'LOW_ODDS_PINNACLE_LED' | 'SHARP_FINAL' | 'SHARP_FINAL_LOW';
 
 /** Tracks a filter selects, in display order. */
 export function modelsFor(filter: ModelFilter): readonly DetectionModelValue[] {
@@ -48,7 +48,9 @@ export function modelsFor(filter: ModelFilter): readonly DetectionModelValue[] {
   if (filter === 'pinnacle') return ['PINNACLE_LED'];
   if (filter === 'low-odds-legacy') return ['LOW_ODDS_LEGACY'];
   if (filter === 'low-odds-pinnacle') return ['LOW_ODDS_PINNACLE_LED'];
-  return ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY'];
+  if (filter === 'sharp') return ['SHARP_FINAL'];
+  if (filter === 'sharp-low') return ['SHARP_FINAL_LOW'];
+  return ['PINNACLE_LED', 'LEGACY', 'LOW_ODDS_PINNACLE_LED', 'LOW_ODDS_LEGACY', 'SHARP_FINAL', 'SHARP_FINAL_LOW'];
 }
 
 const MODEL_DISPLAY: Record<DetectionModelValue, string> = {
@@ -56,6 +58,8 @@ const MODEL_DISPLAY: Record<DetectionModelValue, string> = {
   PINNACLE_LED: 'EXPERIMENTAL PINNACLE-LED SYSTEM',
   LOW_ODDS_LEGACY: 'LOW ODDS LEGACY SYSTEM',
   LOW_ODDS_PINNACLE_LED: 'LOW ODDS EXPERIMENTAL PINNACLE-LED SYSTEM',
+  SHARP_FINAL: 'SHARP FINAL (MULTI-SOURCE CONSENSUS)',
+  SHARP_FINAL_LOW: 'SHARP FINAL LOW ODDS',
 };
 
 export function modelDisplay(model: DetectionModelValue): string {
@@ -69,4 +73,6 @@ export const MODEL_OPTION_CHOICES = [
   { name: 'Pinnacle-led only', value: 'pinnacle' },
   { name: 'Low Odds Legacy only', value: 'low-odds-legacy' },
   { name: 'Low Odds Pinnacle-led only', value: 'low-odds-pinnacle' },
+  { name: 'Sharp Final only', value: 'sharp' },
+  { name: 'Sharp Final Low only', value: 'sharp-low' },
 ];

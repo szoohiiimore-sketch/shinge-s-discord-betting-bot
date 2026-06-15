@@ -54,6 +54,8 @@ export interface SeedStats {
 
 export type HistoricalSeed = Readonly<Record<DetectionModelValue, SeedStats>>;
 
+const EMPTY_SEED: SeedStats = { settledIdeas: 0, wins: 0, losses: 0, profitUnits: 0, roiPct: null, winRatePct: null };
+
 interface SeedRow {
   readonly eventId: string;
   readonly outcome: string;
@@ -143,6 +145,11 @@ export async function loadHistoricalSeed(prisma: PrismaClient): Promise<Historic
       const threshold = legacyLowOddsThresholdPct(r.bookmakerOdds);
       return threshold !== null && r.edgePercentage >= threshold;
     })),
+    // SHARP_FINAL family — no in-play-inferred backtest seed exists (the engine
+    // never ran a sharp-consensus model). Seeded empty; its history lives only in
+    // the football-data CSV replay (HISTORICAL_CSV_SEED) and forward live results.
+    SHARP_FINAL: EMPTY_SEED,
+    SHARP_FINAL_LOW: EMPTY_SEED,
   };
   return cache;
 }
